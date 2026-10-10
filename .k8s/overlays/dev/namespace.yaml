@@ -1,6 +1,6 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: cilab-dev
+  name: github-actions-dev
   labels:
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions

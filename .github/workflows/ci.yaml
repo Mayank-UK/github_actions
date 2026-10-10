@@ -1,4 +1,4 @@
-# CI pipeline for cilab.
+# CI pipeline for github-actions.
 #   test-matrix ─┬─> build-push (push to development only)
 #   render ───────┘
 # Every `uses:` is pinned to a full 40-char commit SHA with the release tag in a
@@ -6,6 +6,13 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      skip-build:
+        description: 'Run tests/render only, skip image build+push'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches: [development, staging, production]
     # Union of paths needed by ALL jobs (GitHub workflows do not support YAML
@@ -118,8 +125,9 @@ jobs:
   build-push:
     name: build+push (${{ matrix.service }})
     needs: [test-matrix, render]
-    # Pushes to development only — skipped (not failed) on pull requests.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    # Pushes to development only — skipped (not failed) on pull requests and
+    # on manual dispatch runs that set the skip-build input.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && inputs.skip-build != true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -149,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           # GHCR requires lowercase repository names; ${VAR,,} lowercases the owner.
-          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cilab-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/github-actions-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
           echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image

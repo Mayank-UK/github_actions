@@ -7,7 +7,7 @@ metadata:
   name: facts
   labels:
     app.kubernetes.io/name: facts
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   replicas: 1
   selector:
@@ -17,11 +17,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: facts
-        app.kubernetes.io/part-of: cilab
+        app.kubernetes.io/part-of: github-actions
     spec:
       containers:
       - name: facts
-        image: cilab/facts:p0
+        image: github-actions/facts:p0
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -55,7 +55,7 @@ metadata:
   name: facts
   labels:
     app.kubernetes.io/name: facts
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   type: ClusterIP
   selector:

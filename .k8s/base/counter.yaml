@@ -5,7 +5,7 @@ metadata:
   name: counter
   labels:
     app.kubernetes.io/name: counter
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   replicas: 1
   selector:
@@ -15,11 +15,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: counter
-        app.kubernetes.io/part-of: cilab
+        app.kubernetes.io/part-of: github-actions
     spec:
       containers:
       - name: counter
-        image: cilab/counter:p0
+        image: github-actions/counter:p0
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -50,7 +50,7 @@ metadata:
   name: counter
   labels:
     app.kubernetes.io/name: counter
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   type: ClusterIP
   selector:

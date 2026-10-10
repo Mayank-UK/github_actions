@@ -1,6 +1,7 @@
 # CI pipeline for github-actions.
 #   test-matrix ─┬─> build-push (push to development only)
 #   render ───────┘
+#   guide — validates GUIDE.md snippets against the files they quote
 # CI ends at build+push. Deploys live in one workflow per environment:
 #   deploy-development.yaml (workflow_run on this workflow's success on
 #   development), deploy-staging.yaml, deploy-production.yaml (push-triggered).
@@ -25,6 +26,8 @@ on:
       - 'app/**'
       - '.docker/**'
       - '.k8s/**'
+      - 'GUIDE.md'
+      - 'scripts/**'
       - '.github/workflows/ci.yaml'
   push:
     branches: [development]
@@ -32,6 +35,8 @@ on:
       - 'app/**'
       - '.docker/**'
       - '.k8s/**'
+      - 'GUIDE.md'
+      - 'scripts/**'
       - '.github/workflows/ci.yaml'
 
 # Latest run per ref wins; obsolete pushes/PR updates are cancelled.
@@ -125,6 +130,22 @@ jobs:
           fi
           echo "overlay ${{ matrix.env }}: $(printf '%s\n' "$out" | wc -l | tr -d ' ') lines rendered"
 
+  guide:
+    name: guide snippets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34f894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Check GUIDE.md snippets against sources
+        # stdlib-only script — verifies every <!-- source: PATH --> fenced
+        # block is an ordered subsequence of PATH, and that every other
+        # block carries <!-- concept -->. Absent GUIDE.md passes (ratchet).
+        run: python scripts/check_snippets.py
+
   build-push:
     name: build+push (${{ matrix.service }})
     needs: [test-matrix, render]
@@ -169,7 +190,9 @@ jobs:
       - name: Build and push multi-arch image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: app/${{ matrix.service }}
+          # frontend builds from repo root (its Dockerfile COPYs GUIDE.md);
+          # other services build from their app/ subdirectory.
+          context: ${{ matrix.service == 'frontend' && '.' || format('app/{0}', matrix.service) }}
           file: .docker/${{ matrix.service }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true

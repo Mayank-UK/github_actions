@@ -17,6 +17,106 @@ vars:
   INGRESS_NGINX_URL: 'https://raw.githubusercontent.com/kubernetes/ingress-nginx/{{.INGRESS_NGINX_VERSION}}/deploy/static/provider/kind/deploy.yaml'
 
 tasks:
+  up:
+    desc: Full bootstrap — the "resume after reboot (or 2 years later)" one-shot. Docker check, kind cluster (start stopped nodes, or create+ingress), runner check, overlays only if namespaces missing, then smoke.
+    cmds:
+      # 1. Everything runs on Docker Desktop (kind nodes are containers).
+      - |
+        if ! docker info >/dev/null 2>&1; then
+          echo 'Docker Desktop is not running.' >&2
+          echo '  Start it (open -a Docker / Launchpad) and wait for the whale, then re-run: task up' >&2
+          exit 1
+        fi
+        echo 'docker: ok'
+      # 2. Cluster: start stopped kind node containers, else create from scratch.
+      - |
+        if kind get clusters 2>/dev/null | grep -qx '{{.CLUSTER}}'; then
+          stopped="$(docker ps -a --filter 'name={{.CLUSTER}}-' --filter status=exited -q)"
+          if [ -n "$stopped" ]; then
+            echo "starting stopped kind nodes: $stopped"
+            docker start $stopped
+          else
+            echo 'kind nodes already running'
+          fi
+          # API server needs a moment after container start.
+          ready=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            kubectl get --raw /readyz >/dev/null 2>&1 && { ready=1; break; } || sleep 5
+          done
+          [ "$ready" = 1 ] || { echo 'FAIL: kind API server not ready after 100s' >&2; exit 1; }
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        else
+          echo 'no {{.CLUSTER}} cluster — creating'
+          task: cluster-create
+          task: ingress
+        fi
+      # 3. Self-hosted runner: verify only, never auto-start (it's a
+      #    user-owned foreground-ish process, not something task should spawn).
+      - |
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner: running'
+        else
+          echo 'runner: NOT running. Start it with:'
+          echo '  cd /Users/mak/Development/temp/actions-runner && nohup ./run.sh > runner.out 2>&1 &'
+          echo '(or: task runner-start)'
+        fi
+      # 4. Overlays only where the namespace is missing (reboot-resume keeps them).
+      - |
+        for env in development staging production; do
+          if kubectl get namespace "github-actions-$env" >/dev/null 2>&1; then
+            echo "namespace github-actions-$env: present"
+          else
+            echo "namespace github-actions-$env missing — applying overlay"
+            kubectl apply -k ".k8s/overlays/$env"
+            for d in facts counter image frontend; do
+              kubectl rollout status deployment/$d -n "github-actions-$env" --timeout=300s
+            done
+          fi
+        done
+      # 5. Prove the whole stack answers.
+      - task: smoke
+
+  runner-start:
+    desc: Start the self-hosted GitHub Actions runner (nohup'd; safe to re-run — no-op if already up)
+    cmds:
+      - |
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner already running:'
+          pgrep -fl 'Runner[.]Listener'
+          exit 0
+        fi
+        cd /Users/mak/Development/temp/actions-runner && nohup ./run.sh > runner.out 2>&1 &
+        sleep 3
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner started (log: /Users/mak/Development/temp/actions-runner/runner.out)'
+        else
+          echo 'FAIL: runner did not stay up — check /Users/mak/Development/temp/actions-runner/runner.out' >&2
+          exit 1
+        fi
+
+  runner-stop:
+    desc: Stop the self-hosted runner (shows the matching process count and asks before pkill)
+    cmds:
+      - |
+        pids="$(pgrep -f 'Runner[.]Listener' || true)"
+        if [ -z "$pids" ]; then
+          echo 'runner not running'
+          exit 0
+        fi
+        count="$(printf '%s\n' "$pids" | wc -l | tr -d ' ')"
+        echo "will terminate $count Runner.Listener process(es): $(echo $pids)"
+        printf 'proceed? [y/N] '
+        read -r answer
+        case "$answer" in
+          y|Y) pkill -f 'Runner[.]Listener' && echo 'runner stopped' ;;
+          *)   echo 'aborted'; exit 1 ;;
+        esac
+
+  guide-check:
+    desc: Verify GUIDE.md snippets against their source files (the same check the CI guide job runs)
+    cmds:
+      - python3 scripts/check_snippets.py
+
   cluster-create:
     desc: Create the kind cluster (1 ingress-ready control-plane + 2 workers, host 8080 -> node 80)
     cmds:
@@ -44,10 +144,12 @@ tasks:
       - kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
 
   build:
-    desc: Build the 4 service images (plain docker build — host and kind nodes are both arm64)
+    desc: Build the 4 service images (plain docker build — host and kind nodes are both arm64). frontend builds from the repo-root context so GUIDE.md gets baked into the image.
     cmds:
+      # The frontend Dockerfile COPYs app/frontend/* AND the repo-root GUIDE.md,
+      # so its build context is `.` — not app/frontend.
       - for: { var: SERVICES }
-        cmd: docker build -f .docker/{{.ITEM}}/Dockerfile -t github-actions/{{.ITEM}}:{{.TAG}} app/{{.ITEM}}
+        cmd: docker build -f .docker/{{.ITEM}}/Dockerfile -t github-actions/{{.ITEM}}:{{.TAG}} {{if eq .ITEM "frontend"}}.{{else}}app/{{.ITEM}}{{end}}
 
   load:
     desc: Load the 4 images into the kind cluster
@@ -121,7 +223,7 @@ tasks:
         echo "$body" | grep -q '"facts"' || { echo "FAIL: /api/facts did not return facts JSON"; exit 1; }
 
   hosts:
-    desc: Idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
+    desc: ONE-TIME setup — idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
     cmds:
       - |
         line='127.0.0.1 development.github-actions.test staging.github-actions.test production.github-actions.test'

@@ -12,7 +12,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: github-actions.local  # placeholder — each overlay's patch replaces this
+  - host: github-actions.test  # placeholder — each overlay's patch replaces this
     http:
       paths:
       - path: /

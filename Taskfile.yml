@@ -82,7 +82,7 @@ tasks:
         for env in dev staging prod; do
           code=000
           for _ in 1 2 3 4 5 6 7 8 9 10; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.github-actions.local:8080:127.0.0.1" "http://$env.github-actions.local:8080/")
+            code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.github-actions.test:8080:127.0.0.1" "http://$env.github-actions.test:8080/")
             [ "$code" = "200" ] && break
             sleep 3
           done
@@ -93,7 +93,7 @@ tasks:
         set -e
         body=''
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-          body=$(curl -sf --resolve dev.github-actions.local:8080:127.0.0.1 'http://dev.github-actions.local:8080/api/facts?topic=rocket' 2>/dev/null) && break
+          body=$(curl -sf --resolve dev.github-actions.test:8080:127.0.0.1 'http://dev.github-actions.test:8080/api/facts?topic=rocket' 2>/dev/null) && break
           sleep 3
         done
         echo "dev /api/facts -> $(echo "$body" | head -c 120)"
@@ -103,8 +103,8 @@ tasks:
     desc: Idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
     cmds:
       - |
-        line='127.0.0.1 dev.github-actions.local staging.github-actions.local prod.github-actions.local'
-        if grep -qF 'dev.github-actions.local' /etc/hosts; then
+        line='127.0.0.1 dev.github-actions.test staging.github-actions.test prod.github-actions.test'
+        if grep -qF 'dev.github-actions.test' /etc/hosts; then
           echo 'github-actions hosts already present in /etc/hosts'
         else
           printf '%s\n' "$line" | sudo tee -a /etc/hosts > /dev/null

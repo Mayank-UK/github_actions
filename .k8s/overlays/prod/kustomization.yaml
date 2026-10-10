@@ -1,4 +1,4 @@
-# prod overlay: namespace github-actions-prod, host prod.github-actions.local, 2 replicas of
+# prod overlay: namespace github-actions-prod, host prod.github-actions.test, 2 replicas of
 # every service (the replicas transformer rewrites spec.replicas per name).
 # Everything else identical to dev/staging.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -24,7 +24,7 @@ patches:
 - patch: |-
     - op: replace
       path: /spec/rules/0/host
-      value: prod.github-actions.local
+      value: prod.github-actions.test
   target:
     kind: Ingress
     name: github-actions

@@ -1,6 +1,9 @@
-# CI/CD pipeline for github-actions.
-#   test-matrix ─┬─> build-push (push to development only) ─> deploy-dev
+# CI pipeline for github-actions.
+#   test-matrix ─┬─> build-push (push to development only)
 #   render ───────┘
+# CI ends at build+push. Deploys live in one workflow per environment:
+#   deploy-dev.yaml (workflow_run on this workflow's success on development),
+#   deploy-staging.yaml, deploy-production.yaml (push-triggered).
 # Every `uses:` is pinned to a full 40-char commit SHA with the release tag in a
 # trailing comment (supply-chain hygiene; updates via Dependabot/renovate).
 name: CI
@@ -175,48 +178,3 @@ jobs:
             ${{ steps.img.outputs.name }}:dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy-dev:
-    name: deploy (dev)
-    # Runs on the self-hosted runner that lives next to the kind cluster
-    # (label deploy-local — see runner/README.md). Auto-skips on pull requests
-    # and on skip-build dispatches: its only need (build-push) is skipped
-    # there, and a skipped `needs` result skips dependents — no `always()`
-    # anywhere in this chain.
-    needs: [build-push]
-    runs-on: [self-hosted, deploy-local]
-    environment: dev
-    # Serialize dev deploys (job-level group takes precedence over the
-    # workflow-level ci-<ref> group); never cancel a rollout already in flight.
-    concurrency:
-      group: deploy-dev
-      cancel-in-progress: false
-    permissions:
-      contents: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Derive image coordinates
-        id: img
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Same lowercase-owner rule as build-push (GHCR requires lowercase
-          # repository names); deploy exactly the sha tag CI just pushed.
-          # POSIX-safe on purpose: macOS self-hosted runner shell is bash 3.2
-          # (no bash-4 lowercase expansion); tr lowercases portably.
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy dev overlay
-        # Composite actions cannot read the `secrets` context — the token is
-        # injected via env (stays masked in logs).
-        uses: ./.github/actions/deploy-env
-        env:
-          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
-        with:
-          env: dev
-          image_prefix: ${{ steps.img.outputs.prefix }}
-          image_tag: ${{ steps.img.outputs.tag }}

@@ -149,7 +149,15 @@
       return res.text();
     })
     .then(function (md) {
-      content.innerHTML = marked.parse(md);  /* replaces the #load-state stub */
+      /* defense-in-depth: prose may legitimately mention literal <script> etc.;
+           blanket-escape them AFTER render so the HTML parser can never enter
+           script/style data mode and swallow the rest of the guide */
+          let html = marked.parse(md)
+            .replace(/<script/gi, '&lt;script')
+            .replace(/<\/script>/gi, '&lt;/script&gt;')
+            .replace(/<style/gi, '&lt;style')
+            .replace(/<template/gi, '&lt;template');
+          content.innerHTML = html;  /* replaces the #load-state stub */
       buildToc(content);
       content.querySelectorAll("pre code").forEach(function (el) {
         try { hljs.highlightElement(el); } catch (e) { /* bad lang tag: leave plain */ }

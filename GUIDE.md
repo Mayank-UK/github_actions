@@ -645,7 +645,12 @@ scope, keeping the script re-readable and testable:
           set -euo pipefail
           owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          # …
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=development" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
 ```
 
 `HEAD_SHA` is step-scope; `GITHUB_REPOSITORY_OWNER` is the runner's built-in.
@@ -655,7 +660,7 @@ self-hosted runner's `/bin/bash` is 3.2. Expressions like `${HEAD_SHA:0:7}`
 (substring, not lowercase expansion) are fine in bash 3.2.
 
 **In the GitHub UI:** step-level `env` values are visible (masked if secret-
-derived) in the job log's "Run <script>" preamble: GitHub prints the exact
+derived) in the job log's "Run &lt;script&gt;" preamble: GitHub prints the exact
 `env:` block the step received.
 
 ## 14. GITHUB_ENV and GITHUB_OUTPUT: passing values between steps

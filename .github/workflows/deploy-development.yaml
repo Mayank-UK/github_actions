@@ -7,8 +7,8 @@
 # conclusion is not 'success', so red/cancelled/skipped CI never deploys.
 #
 # workflow_dispatch (no inputs): manual re-run button for debugging — deploys
-# the head of the branch it is dispatched on (github.sha, since the
-# workflow_run event payload is absent). Only works if CI already pushed
+# the moving `development` image tag (newest images CI built), because the
+# dispatched branch HEAD may be a paths-filtered commit CI never builtushed
 # images for that commit (same rollout gate as below).
 #
 # KNOWN INTERACTION with CI's skip-build input: a manual CI dispatch with
@@ -73,7 +73,15 @@ jobs:
           # default branch's commit; head_sha is what CI built.
           owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          # workflow_run: deploy the exact sha CI built. workflow_dispatch:
+          # branch HEAD may be a paths-filtered commit CI never built (no
+          # images) — deploy the moving `development` tag instead, which
+          # always points at the newest built images.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=development" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Deploy development overlay
         # Composite actions cannot read the `secrets` context — the token is

@@ -5,3 +5,4 @@ __pycache__
 .DS_Store
 coverage/
 bin/
+.pytest_cache/

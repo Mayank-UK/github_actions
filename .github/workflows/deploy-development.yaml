@@ -1,0 +1,87 @@
+# CD: deploy development when the CI workflow completes successfully on
+# `development`.
+#
+# Trigger: workflow_run — fires when the workflow named "CI" (workflow_run
+# filters match the workflow NAME string, not its file name) completes on
+# branch `development`. The job-level guard below skips anything whose
+# conclusion is not 'success', so red/cancelled/skipped CI never deploys.
+#
+# workflow_dispatch (no inputs): manual re-run button for debugging — deploys
+# the head of the branch it is dispatched on (github.sha, since the
+# workflow_run event payload is absent). Only works if CI already pushed
+# images for that commit (same rollout gate as below).
+#
+# KNOWN INTERACTION with CI's skip-build input: a manual CI dispatch with
+# skip-build=true still completes 'success' (tests+render only, no images
+# pushed) and therefore still triggers this workflow. If images for that sha
+# were never pushed, the composite action's rollout gate fails visibly
+# (ImagePullBackOff after 180s). Accepted and documented.
+#
+# CORRECTNESS under workflow_run: `github.sha` is the DEFAULT branch's commit
+# in this event context, NOT the CI run's commit. The deploy tag therefore
+# derives from `github.event.workflow_run.head_sha` — the commit CI actually
+# built and pushed.
+name: Deploy development
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy (development)
+    # workflow_run 'completed' fires on EVERY conclusion; deploy only on green
+    # CI. Manual dispatch runs have no workflow_run payload — always deploy.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Runs on the self-hosted runner that lives next to the kind cluster
+    # (label deploy-local — see runner/README.md).
+    runs-on: [self-hosted, deploy-local]
+    environment: development
+    # Serialize development deploys; never cancel a rollout already in flight.
+    concurrency:
+      group: deploy-development
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The CI run's commit — NOT github.sha (default branch under
+          # workflow_run). Under workflow_dispatch (no payload) fall back to
+          # the dispatched ref's own commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Derive image coordinates
+        id: img
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Same lowercase-owner rule as CI (GHCR requires lowercase
+          # repository names); deploy exactly the sha tag CI just pushed.
+          # POSIX-safe on purpose: macOS self-hosted runner shell is bash 3.2
+          # (no bash-4 lowercase expansion); tr lowercases portably.
+          # HEAD_SHA, not GITHUB_SHA: under workflow_run GITHUB_SHA is the
+          # default branch's commit; head_sha is what CI built.
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy development overlay
+        # Composite actions cannot read the `secrets` context — the token is
+        # injected via env (stays masked in logs).
+        uses: ./.github/actions/deploy-env
+        env:
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+        with:
+          env: development # kustomize overlay / namespace (github-actions-development); matches the GitHub environment above
+          image_prefix: ${{ steps.img.outputs.prefix }}
+          image_tag: ${{ steps.img.outputs.tag }}

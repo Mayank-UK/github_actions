@@ -5,7 +5,7 @@ metadata:
   name: counter
   labels:
     app.kubernetes.io/name: counter
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   replicas: 1
   selector:
@@ -15,11 +15,15 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: counter
-        app.kubernetes.io/part-of: cilab
+        app.kubernetes.io/part-of: github-actions
     spec:
+      # ghcr-pull: used only when the kubelet actually pulls (private GHCR
+      # images deployed by CD). Local dev preloads images, so never consulted.
+      imagePullSecrets:
+      - name: ghcr-pull
       containers:
       - name: counter
-        image: cilab/counter:p0
+        image: github-actions/counter:p0
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -31,18 +35,23 @@ spec:
           limits:
             cpu: 200m
             memory: 128Mi
+        # npm+node cold start can take ~40s under memory pressure on the 8GB
+        # kind host: readiness gates traffic while warming; liveness kills only
+        # after ~80s so slow starts survive.
         readinessProbe:
           httpGet:
             path: /health
             port: http
-          initialDelaySeconds: 2
+          initialDelaySeconds: 10
           periodSeconds: 5
+          failureThreshold: 12
         livenessProbe:
           httpGet:
             path: /health
             port: http
-          initialDelaySeconds: 5
+          initialDelaySeconds: 20
           periodSeconds: 10
+          failureThreshold: 6
 ---
 apiVersion: v1
 kind: Service
@@ -50,7 +59,7 @@ metadata:
   name: counter
   labels:
     app.kubernetes.io/name: counter
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   type: ClusterIP
   selector:

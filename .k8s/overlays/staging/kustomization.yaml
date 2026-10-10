@@ -1,5 +1,5 @@
 # staging overlay: namespace github-actions-staging, host staging.github-actions.test,
-# 1 replica each (base defaults). Identical to dev except namespace/host.
+# 1 replica each (base defaults). Identical to development except namespace/host.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

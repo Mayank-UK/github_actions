@@ -1,6 +1,6 @@
 # Self-hosted deploy runner (this Mac, native process)
 
-The deploy jobs (`deploy-dev`, `deploy-staging`, `deploy-production`) run on a
+The deploy jobs (`deploy-development`, `deploy-staging`, `deploy-production`) run on a
 self-hosted runner with the label `deploy-local` living natively on this Mac,
 next to the kind cluster it deploys to.
 

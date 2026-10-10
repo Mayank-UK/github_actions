@@ -11,8 +11,8 @@ vars:
     - counter
     - image
     - frontend
-  ENVIRONMENTS: [dev, staging, prod]
-  ENV: dev # default environment for `task deploy` — override: task deploy ENV=staging
+  ENVIRONMENTS: [development, staging, production]
+  ENV: development # default environment for `task deploy` — override: task deploy ENV=staging
   INGRESS_NGINX_VERSION: controller-v1.15.1
   INGRESS_NGINX_URL: 'https://raw.githubusercontent.com/kubernetes/ingress-nginx/{{.INGRESS_NGINX_VERSION}}/deploy/static/provider/kind/deploy.yaml'
 
@@ -56,7 +56,7 @@ tasks:
         cmd: kind load docker-image github-actions/{{.ITEM}}:{{.TAG}} --name {{.CLUSTER}}
 
   deploy:
-    desc: Apply one overlay (ENV=dev|staging|prod, default dev) and wait for all rollouts
+    desc: Apply one overlay (ENV=development|staging|production, default development) and wait for all rollouts
     cmds:
       - kubectl apply -k .k8s/overlays/{{.ENV}}
       - |
@@ -65,7 +65,7 @@ tasks:
         done
 
   deploy-all:
-    desc: Build + load images, then apply dev, staging and prod overlays
+    desc: Build + load images, then apply development, staging and production overlays
     deps: [build]
     cmds:
       - task: load
@@ -86,7 +86,7 @@ tasks:
           exit 1
         fi
         owner="${GHCR_OWNER:-Mayank-UK}"
-        for env in dev staging prod; do
+        for env in development staging production; do
           kubectl create secret docker-registry ghcr-pull \
             --docker-server=ghcr.io \
             --docker-username="$owner" \
@@ -100,7 +100,7 @@ tasks:
     cmds:
       - |
         set -e
-        for env in dev staging prod; do
+        for env in development staging production; do
           code=000
           for _ in 1 2 3 4 5 6 7 8 9 10; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.github-actions.test:8080:127.0.0.1" "http://$env.github-actions.test:8080/")
@@ -114,20 +114,27 @@ tasks:
         set -e
         body=''
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-          body=$(curl -sf --resolve dev.github-actions.test:8080:127.0.0.1 'http://dev.github-actions.test:8080/api/facts?topic=rocket' 2>/dev/null) && break
+          body=$(curl -sf --resolve development.github-actions.test:8080:127.0.0.1 'http://development.github-actions.test:8080/api/facts?topic=rocket' 2>/dev/null) && break
           sleep 3
         done
-        echo "dev /api/facts -> $(echo "$body" | head -c 120)"
+        echo "development /api/facts -> $(echo "$body" | head -c 120)"
         echo "$body" | grep -q '"facts"' || { echo "FAIL: /api/facts did not return facts JSON"; exit 1; }
 
   hosts:
     desc: Idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
     cmds:
       - |
-        line='127.0.0.1 dev.github-actions.test staging.github-actions.test prod.github-actions.test'
-        if grep -qF 'dev.github-actions.test' /etc/hosts; then
+        line='127.0.0.1 development.github-actions.test staging.github-actions.test production.github-actions.test'
+        if grep -qF 'development.github-actions.test' /etc/hosts; then
           echo 'github-actions hosts already present in /etc/hosts'
         else
+          # Replace, don't just append: drop any pre-rename line (dev./prod.
+          # hosts). The pattern cannot match the full-word hosts ('dev.'/'prod.'
+          # require a literal dot right after the short word).
+          if grep -qE '(dev|prod)\.github-actions\.test' /etc/hosts; then
+            grep -vE '(dev|prod)\.github-actions\.test' /etc/hosts | sudo tee /etc/hosts > /dev/null
+            echo 'removed pre-rename github-actions hosts line from /etc/hosts'
+          fi
           printf '%s\n' "$line" | sudo tee -a /etc/hosts > /dev/null
           echo "added to /etc/hosts: $line"
         fi

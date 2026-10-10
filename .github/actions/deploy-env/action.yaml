@@ -8,19 +8,19 @@ description: >-
 # injects the GHCR pull token via env (secret values passed through env stay
 # masked in run logs):
 #
-#   - uses: ./.github/actions/deploy-env
-#     env:
-#       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
-#     with:
-#       env: dev
-#       ...
+  #   - uses: ./.github/actions/deploy-env
+  #     env:
+  #       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+  #     with:
+  #       env: development
+  #       ...
 #
 # Requires on the runner host: kubectl 1.36.x, kustomize 5.x, git
 # (see runner/README.md).
 
 inputs:
   env:
-    description: 'Target environment: dev | staging | prod (namespace github-actions-<env>)'
+    description: 'Target environment: development | staging | production (namespace github-actions-<env>, overlay .k8s/overlays/<env>)'
     required: true
   image_prefix:
     description: 'Registry path prefix of the CI-built images, e.g. ghcr.io/mayank-uk (the prefix also supplies the GHCR pull username)'

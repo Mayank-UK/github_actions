@@ -2,8 +2,8 @@
 #   test-matrix ─┬─> build-push (push to development only)
 #   render ───────┘
 # CI ends at build+push. Deploys live in one workflow per environment:
-#   deploy-dev.yaml (workflow_run on this workflow's success on development),
-#   deploy-staging.yaml, deploy-production.yaml (push-triggered).
+#   deploy-development.yaml (workflow_run on this workflow's success on
+#   development), deploy-staging.yaml, deploy-production.yaml (push-triggered).
 # Every `uses:` is pinned to a full 40-char commit SHA with the release tag in a
 # trailing comment (supply-chain hygiene; updates via Dependabot/renovate).
 name: CI
@@ -107,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, staging, prod]
+        env: [development, staging, production]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

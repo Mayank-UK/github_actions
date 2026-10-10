@@ -84,6 +84,6 @@ jobs:
         env:
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
         with:
-          env: prod
+          env: production # kustomize overlay / namespace (github-actions-production); matches the GitHub environment above
           image_prefix: ${{ steps.img.outputs.prefix }}
           image_tag: ${{ steps.img.outputs.tag }}

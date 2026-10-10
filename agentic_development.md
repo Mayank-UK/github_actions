@@ -6,7 +6,7 @@
 - Env naming = FULL WORDS everywhere: overlays/{development,staging,production}, ns github-actions-*, hosts *.github-actions.test, workflows ci + deploy-{development,staging,production}.yaml (staging/prod resolve images via merge-commit HEAD^2 + dispatch override; deploy-development has workflow_dispatch with event_name guard + github.sha fallback).
 - Hard-won rules: macOS /bin/bash 3.2 -> workflow shell must be POSIX-safe (tr, ${SHA:0:7}); 8GB Mac thrashes (8.3/9.2GB swap) -> npm cold starts ~40s (counter probes budget 80s; consider prod replicas 2->1); .local TLD forbidden (mDNS); `node --test` needs glob form; workflow_run events -> use head_sha not github.sha; ingress-nginx must node-select ingress-ready=true.
 - USER FILE RULE (2026-10-10): exactly TWO .md files in this repo - agentic_development.md + the single GUIDE.md (P6). No devlog.md, no runner/README.md, no README (deleted this session; content folded here + git history). All teaching/setup/resume docs live in GUIDE.md only.
-- PENDING: P4 promotion e2e (needs production Required-reviewers + merge-commit PRs dev->staging->production) - P6 single GUIDE.md (fundamentals + Project + runner setup + resume-after-reboot/`task up` bootstrap; P5 absorbed) + requirements-dev.txt follow-up.
+- PENDING: ONLY production promotion PR + approval click. Everything else DONE. Optional follow-ups: requirements-dev.txt, Docker-Hub-variant exercise.
 
 ## CI/CD plan (approved 2026-10-10)
 Decisions:
@@ -33,8 +33,8 @@ Phases:
 - P1 ✅ k8s: kind config + kustomize base/overlays + Taskfile — verified: 3 envs live on local kind, smoke ×3 green
 - P2 ✅ CI workflows (all `uses:` pinned to commit SHAs) — VERIFIED GREEN live run #1 (push, user-confirmed 2026-10-10)
 - P3 ✅ CD — authoring + runner + e2e dev deploy all green (see Current state)
-- P4 🚧 environments + production protection rule — needs user clicks in GitHub UI — verify: dev→staging→prod promotion e2e with approval gate
-- P6 ⏳ guide (absorbs P5): single GUIDE.md — Part I fundamentals A–Z + Part II Project + runner setup + resume-after-reboot/task-up bootstrap + manual-setup steps; frontend serves it at `/` (renderer vendored into image); snippet-check script wired into CI — verify: check passes in Actions + guide renders at localhost:8080 with live demos
+- P4 🚧 promotion e2e: development->staging PR DONE + deploy Succeeded (staging now sha-dcd44bc). REMAINING: production PR (merge commit) + approval click (env Required-reviewers OR branch protection w/ admin bypass — user enabled bypass).
+- P6 ✅ guide LIVE (absorbs P5): single GUIDE.md — Part I fundamentals A–Z + Part II Project + runner setup + resume-after-reboot/task-up bootstrap + manual-setup steps; frontend serves it at `/` (renderer vendored into image); snippet-check script wired into CI — VERIFIED: guide job green in CI (88/88 snippets), deploy sha-1b89e69 live, /GUIDE.md 200 + renderer shell served at development + staging URLs. Serving = marked@12 + hljs@11 baked into image (repo-root build context, conditional in build-push), checker scripts/check_snippets.py in CI. Two SHA-typo fixes en route (checkout 43-char, setup-python f894->e894) — lesson: actionlint cannot validate SHA existence; GitHub resolver is the only oracle.
 
 # Developer defined section:
 

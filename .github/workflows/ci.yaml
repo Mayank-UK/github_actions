@@ -156,9 +156,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # GHCR requires lowercase repository names; ${VAR,,} lowercases the owner.
-          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/github-actions-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
-          echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          # GHCR requires lowercase repository names. Lowercasing via tr, not
+          # the bash-4-only lowercase expansion: self-hosted macOS runners run
+          # /bin/bash 3.2 — keep every workflow shell POSIX-safe.
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "name=ghcr.io/$owner/github-actions-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+          echo "short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -201,8 +204,11 @@ jobs:
           set -euo pipefail
           # Same lowercase-owner rule as build-push (GHCR requires lowercase
           # repository names); deploy exactly the sha tag CI just pushed.
-          echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          # POSIX-safe on purpose: macOS self-hosted runner shell is bash 3.2
+          # (no bash-4 lowercase expansion); tr lowercases portably.
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy dev overlay
         # Composite actions cannot read the `secrets` context — the token is

@@ -16,6 +16,11 @@ shares the host's network stack and reaches the kind API server directly.
 No inbound access is needed either way: the runner long-polls GitHub over
 outbound HTTPS. Nothing listens publicly on this Mac because of the runner.
 
+> Shell note: `shell: bash` on a macOS self-hosted runner resolves to the
+> system `/bin/bash` **3.2** — workflows here must stay POSIX-safe (no
+> bash-4 syntax like `${VAR,,}`; lowercase via `tr`, substrings via
+> `${VAR:0:7}` which 3.2 supports).
+
 ## One-time setup
 
 ### 1. Tools (pinned versions)

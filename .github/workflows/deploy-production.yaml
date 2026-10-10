@@ -50,8 +50,10 @@ jobs:
           INPUT_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
-          # Same lowercase-owner rule as CI (GHCR requires lowercase names).
-          echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          # Same lowercase-owner rule as CI (GHCR requires lowercase names);
+          # tr lowercases, not a bash-4 expansion — macOS runner shell is 3.2.
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "prefix=ghcr.io/$owner" >> "$GITHUB_OUTPUT"
           if [ -n "$INPUT_TAG" ]; then
             # Manual override (workflow_dispatch): accept sha-abc1234 or bare abc1234.
             case "$INPUT_TAG" in

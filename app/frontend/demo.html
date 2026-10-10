@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>github-actions — live demo</title>
-<!-- Self-contained interactive demo against the three live services behind
-     this ingress. Same design tokens as index.html (no external assets);
-     every request goes browser → ingress → frontend nginx → service pod. -->
+<!-- k8slab-style one-action demo: ONE topic → ONE combined result card.
+     The services talk to each other — the counts in the card were computed
+     by the counter service, called BY the facts service, not by this page.
+     Same design tokens as index.html (no external assets). -->
 <style>
   :root {
     --bg: #ffffff; --fg: #1f2328; --muted: #57606a; --border: #d0d7de;
     --code-bg: #f6f8fa; --accent: #0969da; --hover: #f3f4f6;
-    --error: #d1242f; --ok: #1a7f37;
+    --error: #d1242f;
   }
   html[data-theme="dark"] {
     --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
@@ -43,47 +44,52 @@
     border-radius: 6px; text-decoration: none;
   }
   .topbar a:hover, .topbar button:hover { background: var(--hover); }
-  .card {
-    max-width: 720px; margin: 40px auto 96px; padding: 0 20px;
-  }
-  .card h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .3em; }
-  .card .sub { color: var(--muted); margin: 0 0 2em; }
-  section {
-    border: 1px solid var(--border); border-radius: 8px;
-    padding: 20px 22px; margin: 24px 0;
-  }
-  section h2 { font-size: 1.1rem; margin: 0 0 4px; }
-  .endpoint {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: .8rem; color: var(--muted); margin: 0 0 14px;
-  }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
-  input[type="text"], textarea {
+  .wrap { max-width: 720px; margin: 40px auto 96px; padding: 0 20px; }
+  .wrap h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .3em; }
+  .wrap .sub { color: var(--muted); margin: 0 0 2em; }
+  form.row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type="text"] {
     font: inherit; color: var(--fg); background: var(--bg);
-    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px;
+    flex: 1; min-width: 220px;
   }
-  input[type="text"] { flex: 1; min-width: 200px; }
-  textarea { width: 100%; min-height: 130px; resize: vertical; margin-top: 10px; }
   button.action {
-    font: inherit; font-size: .9rem; padding: 8px 16px; cursor: pointer;
+    font: inherit; font-size: .95rem; padding: 9px 20px; cursor: pointer;
     color: var(--bg); background: var(--accent); border: 1px solid var(--accent);
     border-radius: 6px; white-space: nowrap;
   }
   button.action:disabled { opacity: .55; cursor: wait; }
-  .path {
-    font-size: .8rem; color: var(--muted); margin: 14px 0 0;
-    border-top: 1px dashed var(--border); padding-top: 10px;
+  #result { margin-top: 26px; }
+  .card-result {
+    border: 1px solid var(--border); border-radius: 8px; padding: 24px 26px;
   }
-  .result { margin-top: 14px; }
-  .result p { margin: .3em 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .result .stats { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .9rem; }
-  .result img {
-    max-width: 100%; max-height: 340px; border-radius: 6px;
-    border: 1px solid var(--border); display: block; margin-top: 8px;
+  .card-result h2 { font-size: 1.35rem; margin: 0 0 2px; text-transform: capitalize; }
+  .card-result img {
+    max-width: 100%; max-height: 380px; border-radius: 6px;
+    border: 1px solid var(--border); display: block; margin: 14px 0 4px;
   }
-  .result .caption { font-size: .85rem; color: var(--muted); }
-  .result.error { color: var(--error); }
-  .result .note { color: var(--muted); font-style: italic; }
+  .card-result .caption { font-size: .85rem; color: var(--muted); margin: 0 0 4px; }
+  .card-result p.desc { margin: 14px 0 0; }
+  .counts {
+    margin-top: 16px; padding: 10px 14px; border-radius: 6px;
+    background: var(--code-bg); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .9rem;
+  }
+  .counts .note {
+    font-family: inherit; font-size: .78rem; color: var(--muted); margin-top: 4px;
+  }
+  .part-error { color: var(--error); margin: 10px 0 0; }
+  .all-error { color: var(--error); white-space: pre-wrap; }
+  details.hood {
+    margin-top: 16px; padding: .6em 1em; border: 1px dashed var(--border);
+    border-radius: 8px; font-size: .88rem; color: var(--muted);
+  }
+  details.hood summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+  details.hood li { margin: .4em 0; }
+  details.hood code {
+    padding: 1px 5px; border-radius: 5px; background: var(--code-bg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .85em;
+  }
   a { color: var(--accent); }
 </style>
 </head>
@@ -95,48 +101,19 @@
   <button id="theme-toggle" type="button" title="Toggle light/dark theme">◐ theme</button>
 </header>
 
-<main class="card">
+<main class="wrap">
   <h1>github-actions — live microservices demo</h1>
-  <p class="sub">Every button below is a real HTTP request through the running
-  pipeline's deployment: browser → ingress → frontend (nginx) → the service's
-  pod. The frontend is a thin nginx that proxies <code>/api/*</code> to the
-  three backends — no request ever talks to a pod directly.</p>
+  <p class="sub">One topic in, one combined result out. Your browser makes two
+  requests (facts + image); the word counts arrive because the <em>services
+  talk to each other</em> — the facts pod calls the counter pod itself before
+  answering.</p>
 
-  <!-- ============ 1. facts (Python) ============ -->
-  <section>
-    <h2>1 · Facts — the Python service</h2>
-    <p class="endpoint">GET /api/facts?topic=&lt;input&gt;</p>
-    <div class="row">
-      <input type="text" id="topic" placeholder="topic, e.g. antarctica" autocomplete="off">
-      <button class="action" id="btn-facts" type="button">Get facts</button>
-    </div>
-    <div class="result" id="facts-result" aria-live="polite"></div>
-    <p class="path">this request went ingress → frontend (nginx) → <strong>facts</strong> pod (Python :8000)</p>
-  </section>
+  <form class="row" id="go-form">
+    <input type="text" id="topic" placeholder="a topic, e.g. antarctica" autocomplete="off" autofocus>
+    <button class="action" id="btn-go" type="submit">Generate result</button>
+  </form>
 
-  <!-- ============ 2. count (Node) ============ -->
-  <section>
-    <h2>2 · Count — the Node service</h2>
-    <p class="endpoint">POST /api/count · body {"text": "…"}</p>
-    <div class="row">
-      <button class="action" id="btn-count" type="button">Count words</button>
-    </div>
-    <textarea id="text" spellcheck="false"
-      placeholder="Press “Get facts” above to prefill this with the fetched fact text — or type anything and count it."></textarea>
-    <div class="result" id="count-result" aria-live="polite"></div>
-    <p class="path">this request went ingress → frontend (nginx) → <strong>counter</strong> pod (Node :3000)</p>
-  </section>
-
-  <!-- ============ 3. image (Go) ============ -->
-  <section>
-    <h2>3 · Image — the Go service</h2>
-    <p class="endpoint">GET /api/image?topic=&lt;input&gt;</p>
-    <div class="row">
-      <button class="action" id="btn-image" type="button">Fetch image</button>
-    </div>
-    <div class="result" id="image-result" aria-live="polite"></div>
-    <p class="path">this request went ingress → frontend (nginx) → <strong>image</strong> pod (Go :8080)</p>
-  </section>
+  <div id="result" aria-live="polite"></div>
 </main>
 
 <script>
@@ -178,128 +155,131 @@
       .finally(function () { clearTimeout(timer); });
   }
 
-  /* render helpers — textContent only, never innerHTML (facts text is remote data) */
-  function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
-  function msg(el, text, isError) {
-    clear(el);
-    el.className = "result" + (isError ? " error" : "");
-    var p = document.createElement("p");
-    p.textContent = text;
-    el.appendChild(p);
-    return el;
+  /* render helpers — textContent only, never innerHTML (all text is remote data) */
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
   }
-  function errText(r, fallback) {
+  function link(url, text) {
+    var a = document.createElement("a");
+    a.href = url;
+    a.textContent = text;
+    return a;
+  }
+  function errText(r) {
     if (r.data && r.data.error) return r.data.error;
     if (r.status) return "HTTP " + r.status + (r.statusText ? " " + r.statusText : "");
-    return r.statusText || fallback;
-  }
-  function withButton(btn, fn) {
-    return function () {
-      if (btn.disabled) return;
-      btn.disabled = true;
-      Promise.resolve(fn()).finally(function () { btn.disabled = false; });
-    };
+    return r.statusText || "request failed";
   }
 
+  var resultBox = document.getElementById("result");
+  var goBtn = document.getElementById("btn-go");
   var topicInput = document.getElementById("topic");
-  var factsResult = document.getElementById("facts-result");
-  var countResult = document.getElementById("count-result");
-  var imageResult = document.getElementById("image-result");
-  var textArea = document.getElementById("text");
 
-  function topic() { return topicInput.value.trim(); }
+  function clearResult() { while (resultBox.firstChild) resultBox.removeChild(resultBox.firstChild); }
 
-  /* Enter in the topic box = "Get facts" (same affordance as a form) */
-  topicInput.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter") document.getElementById("btn-facts").click();
+  function renderCard(topic, facts, image) {
+    clearResult();
+    var card = el("section", "card-result");
+    card.appendChild(el("h2", null, topic));
+
+    /* --- image half (may have failed independently of facts) --- */
+    if (image.ok && image.data && image.data.imageUrl && /^https?:/i.test(image.data.imageUrl)) {
+      var img = el("img");
+      img.src = image.data.imageUrl;
+      img.alt = image.data.pageTitle || ("image for " + topic);
+      img.referrerPolicy = "no-referrer";
+      var imgWrap = el("div");
+      img.addEventListener("error", function () {
+        imgWrap.replaceChild(el("p", "part-error", "the API returned an image URL but it failed to load: " + image.data.imageUrl), img);
+      });
+      imgWrap.appendChild(img);
+      card.appendChild(imgWrap);
+      card.appendChild(el("p", "caption", image.data.pageTitle || image.data.imageUrl));
+    } else if (image.ok) {
+      /* API answered 200 but had no usable Commons hit (imageUrl null) */
+      card.appendChild(el("p", "caption", "no image found for this topic — the Commons search had no usable result"));
+    } else {
+      card.appendChild(el("p", "part-error", "image service: " + errText(image)));
+    }
+
+    /* --- facts half --- */
+    if (facts.ok && facts.data) {
+      card.appendChild(el("p", "desc", facts.data.facts || "(empty facts text)"));
+      if (facts.data.sourceUrl && /^https?:/i.test(facts.data.sourceUrl)) {
+        var srcP = el("p", "caption");
+        srcP.appendChild(document.createTextNode("source: "));
+        srcP.appendChild(link(facts.data.sourceUrl, facts.data.sourceUrl));
+        card.appendChild(srcP);
+      }
+
+      /* --- counts: computed by counter, called BY facts — not by this page --- */
+      var counts = el("div", "counts");
+      if (facts.data.counts) {
+        counts.appendChild(el("div", null, "words: " + facts.data.counts.words +
+          " · characters: " + facts.data.counts.characters +
+          " · uniqueWords: " + facts.data.counts.uniqueWords));
+      } else {
+        counts.appendChild(el("div", null, "counts unavailable"));
+      }
+      counts.appendChild(el("div", "note",
+        "counted by the counter service (called by facts, not by this page)"));
+      card.appendChild(counts);
+    } else {
+      card.appendChild(el("p", "part-error", "facts service: " + errText(facts)));
+    }
+
+    /* --- under the hood --- */
+    var hood = el("details", "hood");
+    hood.appendChild(el("summary", null, "Under the hood — the requests behind this card"));
+    var ol = el("ol");
+    ol.appendChild(el("li", null, "This page → GET /api/facts?topic=" + topic +
+      "  — ingress → frontend (nginx) → facts pod (Python :8000)"));
+    ol.appendChild(el("li", null, "This page → GET /api/image?topic=" + topic +
+      "  — ingress → frontend (nginx) → image pod (Go :8080), sent in parallel with 1"));
+    ol.appendChild(el("li", null, "You never made this one: facts pod → POST counter:3000/count" +
+      " (service-to-service inside the cluster) — the counts row above came back" +
+      " already computed inside the /api/facts response."));
+    hood.appendChild(ol);
+    card.appendChild(hood);
+
+    resultBox.appendChild(card);
+  }
+
+  document.getElementById("go-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (goBtn.disabled) return;
+    var t = topicInput.value.trim();
+    if (!t) {
+      clearResult();
+      resultBox.appendChild(el("p", "all-error", "topic is required (the APIs reject an empty topic with the same words)"));
+      return;
+    }
+    goBtn.disabled = true;
+    goBtn.textContent = "Generating …";
+    clearResult();
+    resultBox.appendChild(el("p", null, "asking the cluster for “" + t + "” (two requests, in parallel) …"));
+
+    var q = encodeURIComponent(t);
+    Promise.all([
+      fetchJSON("/api/facts?topic=" + q),
+      fetchJSON("/api/image?topic=" + q)
+    ]).then(function (rs) {
+      var facts = rs[0], image = rs[1];
+      if (!facts.ok && !image.ok) {
+        clearResult();
+        resultBox.appendChild(el("p", "all-error",
+          "both services failed — facts: " + errText(facts) + " · image: " + errText(image)));
+        return;
+      }
+      renderCard(t, facts, image);
+    }).finally(function () {
+      goBtn.disabled = false;
+      goBtn.textContent = "Generate result";
+    });
   });
-
-  /* ---------- 1. facts ---------- */
-  document.getElementById("btn-facts").addEventListener("click", withButton(
-    document.getElementById("btn-facts"),
-    function () {
-      var t = topic();
-      if (!t) { msg(factsResult, "topic is required (the API rejects an empty topic with the same words)", true); return; }
-      msg(factsResult, "fetching facts for “" + t + "” …");
-      return fetchJSON("/api/facts?topic=" + encodeURIComponent(t)).then(function (r) {
-        if (!r.ok) { msg(factsResult, errText(r, "facts request failed"), true); return; }
-        clear(factsResult);
-        factsResult.className = "result";
-        var p = document.createElement("p");
-        p.textContent = r.data.facts;
-        factsResult.appendChild(p);
-        if (r.data.sourceUrl && /^https?:/i.test(r.data.sourceUrl)) {
-          var src = document.createElement("p");
-          src.className = "caption";
-          var a = document.createElement("a");
-          a.href = r.data.sourceUrl; a.textContent = "source: " + r.data.sourceUrl;
-          src.appendChild(a);
-          factsResult.appendChild(src);
-        }
-        /* prefill the counter textarea (editable) for section 2 */
-        textArea.value = r.data.facts;
-      });
-    }
-  ));
-
-  /* ---------- 2. count ---------- */
-  document.getElementById("btn-count").addEventListener("click", withButton(
-    document.getElementById("btn-count"),
-    function () {
-      var text = textArea.value;
-      if (!text.trim()) { msg(countResult, "nothing to count — the textarea is empty", true); return; }
-      msg(countResult, "counting …");
-      return fetchJSON("/api/count", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text })
-      }).then(function (r) {
-        if (!r.ok) { msg(countResult, errText(r, "count request failed"), true); return; }
-        clear(countResult);
-        countResult.className = "result";
-        var p = document.createElement("p");
-        p.className = "stats";
-        p.textContent = "words: " + r.data.words +
-          " · characters: " + r.data.characters +
-          " · uniqueWords: " + r.data.uniqueWords;
-        countResult.appendChild(p);
-      });
-    }
-  ));
-
-  /* ---------- 3. image ---------- */
-  document.getElementById("btn-image").addEventListener("click", withButton(
-    document.getElementById("btn-image"),
-    function () {
-      var t = topic();
-      if (!t) { msg(imageResult, "topic is required (the image service rejects an empty topic with the same words)", true); return; }
-      msg(imageResult, "searching Wikimedia Commons for “" + t + "” …");
-      return fetchJSON("/api/image?topic=" + encodeURIComponent(t)).then(function (r) {
-        if (!r.ok) { msg(imageResult, errText(r, "image request failed"), true); return; }
-        clear(imageResult);
-        imageResult.className = "result";
-        if (r.data.imageUrl) {
-          var img = document.createElement("img");
-          img.src = r.data.imageUrl;
-          img.alt = r.data.pageTitle || ("image for " + r.data.topic);
-          img.referrerPolicy = "no-referrer";
-          img.addEventListener("error", function () {
-            msg(imageResult, "the API returned an image URL but it failed to load: " + r.data.imageUrl, true);
-          });
-          imageResult.appendChild(img);
-          var cap = document.createElement("p");
-          cap.className = "caption";
-          cap.textContent = r.data.pageTitle || r.data.imageUrl;
-          imageResult.appendChild(cap);
-        } else {
-          var none = document.createElement("p");
-          none.className = "note";
-          none.textContent = "no image found for “" + r.data.topic + "” — the service hit the Commons API but had no usable result. Try another topic.";
-          imageResult.appendChild(none);
-        }
-      });
-    }
-  ));
 })();
 </script>
 </body>

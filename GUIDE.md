@@ -92,6 +92,12 @@ and proxies the three live APIs:
   counts.
 - `GET /api/image?topic=<anything>` — a Wikimedia Commons image for a topic.
 
+The `/demo.html` page ("Try the app →" in the top bar) drives all three as
+the *app*, not as a debug tool: one topic → one combined card (image +
+description + counts). Your browser only makes two requests (facts, image,
+in parallel) — the counts arrive ready inside the facts response because the
+facts service called counter for you.
+
 The other tasks you will see in this guide (`task cluster-create`,
 `task ingress`, `task build`, `task deploy`, `task smoke`, `task pull-secret`,
 `task guide-check`, …) are the building blocks `task up` orchestrates — they
@@ -2123,9 +2129,12 @@ COPY GUIDE.md /usr/share/nginx/html/GUIDE.md
 
 nginx serves the markdown with an explicit content type (its stock
 mime.types would offer a download instead)… Alongside the guide page, the
-image also ships `demo.html` — a small interactive page that exercises all
-three services with one click each (reachable from the guide's top bar,
-"Try the app →").
+image also ships `demo.html` — a one-action page ("Try the app →" in the
+guide's top bar): enter a topic, get a single combined result card (Commons
+image + Wikipedia description + word counts). The counts are the
+service-to-service proof — the facts pod calls the counter pod itself, so
+the page's two parallel requests (`/api/facts`, `/api/image`) return a
+result the counter service already computed; the page never calls counter.
 
 <!-- source: app/frontend/nginx.conf -->
 ```nginx

@@ -1,7 +1,10 @@
 # AI defined section:
 
 ## Current state
-- Plan APPROVED 2026-10-10; execution started (P0 scaffold in progress, P1–P6 queued). Video-coverage checklist below governs guide scope.
+- Plan APPROVED 2026-10-10. Video-coverage checklist below governs guide scope.
+- P0 DONE (8a1baab): app/{facts,counter,image,frontend} + tests 9/7/5 green + non-root multi-arch Dockerfiles (builder `cilab-multi`). CI test cmds (P2 must reuse): pytest via venv or setup-python; `node --test "app/counter/*.test.js"` GLOB form (bare dir arg HANGS Node 22); go test needs setup-go or golang container (no host Go).
+- P1 DONE (f035ab1): kind `cilab` cluster, kustomize base + overlays dev/staging/prod (ns cilab-*, hosts *.cilab.local, prod replicas 2), Taskfile ×9. E2E green: 16/16 pods, 3×200 + /api/facts + /api/count. Gotchas: ingress-nginx controller MUST node-select ingress-ready=true (task patches it); smoke retries 30s (nginx-sync 503s).
+- P2 AUTHORING DONE (6b2050a): `.github/workflows/ci.yaml` — DAG test-matrix (facts pytest / counter npm ci + node --test glob / image setup-go cache:false no go.sum) → render ×3 (setup-kubectl + kubectl v1.36.1) → build-push ×4 (QEMU+buildx, `ghcr.io/<owner-lowercase>/cilab-*` tags `sha-<7>`+`dev`, cache type=gha); 11/11 `uses:` SHA-pinned; actionlint clean; union paths filter (no per-job gating). CI test deps installed inline (httpx, pytest) — follow-up: requirements-dev.txt. LIVE RUN PENDING on user repo creation + push. Repo NAME (user decision 2026-10-10): `Mayank-UK/github_actions` (private) — no code references the repo name (owner derived dynamically; images keep the `cilab-*` app prefix).
 - Scout facts: k8slab (`../kubernetes`) = 5 services on a kind 3-node cluster (local-only, currently deleted), flat numbered manifests, local-only images, no registry, no tests. Course fork teaches secrets/environments/OIDC/reusable workflows but has NO docker-push or k8s-deploy example — we write those from scratch.
 
 ## CI/CD plan (approved 2026-10-10)
@@ -25,9 +28,9 @@ Decisions:
     - DevEx/best-practices: Taskfile local-first loop [x] · act [c] · SSH breakpoint + debug vars [c] · monorepo vs multi-repo [c]
 
 Phases:
-- P0 ⏳ scaffold: git init + .gitignore, app code + tests + Dockerfiles — verify: tests pass, `docker build` ×4 locally
-- P1 ⏳ k8s: kind config + kustomize base/overlays + Taskfile local-dev loop — verify: manual kustomize deploy on local kind
-- P2 ⏳ CI workflows (all `uses:` pinned to commit SHAs) — needs user to create private GitHub repo + push — verify: green Actions run
+- P0 ✅ scaffold: git init + .gitignore, app code + tests + Dockerfiles — verified: 3 test suites + `docker build` ×4 + multi-arch ×4 green
+- P1 ✅ k8s: kind config + kustomize base/overlays + Taskfile — verified: 3 envs live on local kind, smoke ×3 green
+- P2 🚧 CI workflows (all `uses:` pinned to commit SHAs) — needs user to create private GitHub repo + push — verify: green Actions run
 - P3 ⏳ CD: runner container (fork-PR hardened) + deploy workflows + one composite action — needs user to register the runner — verify: e2e dev deploy from a push
 - P4 ⏳ environments + production protection rule — needs user clicks in GitHub UI — verify: dev→staging→prod promotion e2e with approval gate
 - P5 ⏳ manual-setup guide (README) + devlog

@@ -175,6 +175,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.img.outputs.name }}:sha-${{ steps.img.outputs.short }}
-            ${{ steps.img.outputs.name }}:dev
+            ${{ steps.img.outputs.name }}:development
           cache-from: type=gha
           cache-to: type=gha,mode=max

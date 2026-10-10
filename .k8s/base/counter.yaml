@@ -1,0 +1,61 @@
+# Counter service: Express :3000, /health probe.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: counter
+  labels:
+    app.kubernetes.io/name: counter
+    app.kubernetes.io/part-of: cilab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: counter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: counter
+        app.kubernetes.io/part-of: cilab
+    spec:
+      containers:
+      - name: counter
+        image: cilab/counter:p0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter
+  labels:
+    app.kubernetes.io/name: counter
+    app.kubernetes.io/part-of: cilab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: counter
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http

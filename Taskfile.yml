@@ -1,0 +1,111 @@
+version: '3'
+
+# Local-dev loop for the cilab lab. Everything runs from the repo root
+# (go-task sets the working dir to this Taskfile's directory).
+
+vars:
+  CLUSTER: cilab
+  TAG: p0
+  SERVICES:
+    - facts
+    - counter
+    - image
+    - frontend
+  ENVIRONMENTS: [dev, staging, prod]
+  ENV: dev # default environment for `task deploy` — override: task deploy ENV=staging
+  INGRESS_NGINX_VERSION: controller-v1.15.1
+  INGRESS_NGINX_URL: 'https://raw.githubusercontent.com/kubernetes/ingress-nginx/{{.INGRESS_NGINX_VERSION}}/deploy/static/provider/kind/deploy.yaml'
+
+tasks:
+  cluster-create:
+    desc: Create the kind cluster (1 ingress-ready control-plane + 2 workers, host 8080 -> node 80)
+    cmds:
+      - kind create cluster --config .k8s/kind-cluster.yaml --name {{.CLUSTER}}
+
+  cluster-delete:
+    desc: Delete the kind cluster
+    cmds:
+      - kind delete cluster --name {{.CLUSTER}}
+
+  ingress:
+    desc: Install ingress-nginx (kind provider build, version pinned) and wait for it
+    cmds:
+      - kubectl apply -f {{.INGRESS_NGINX_URL}}
+      # The kind deploy.yaml only node-selects kubernetes.io/os=linux, so on a
+      # multi-node cluster the hostPort-80 controller can land on a worker the
+      # 8080->80 extraPortMapping (control-plane only) cannot reach. Pin it to
+      # the node labeled ingress-ready=true (toleration already in the manifest).
+      - >
+        kubectl -n ingress-nginx patch deployment ingress-nginx-controller --type=strategic
+        -p '{"spec":{"template":{"spec":{"nodeSelector":{"ingress-ready":"true"}}}}}'
+      - kubectl -n ingress-nginx wait --for=condition=Available deployment/ingress-nginx-controller --timeout=300s
+      # Available alone can be reported from the pre-patch ReplicaSet — also
+      # wait for the pinned rollout to actually finish.
+      - kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
+
+  build:
+    desc: Build the 4 service images (plain docker build — host and kind nodes are both arm64)
+    cmds:
+      - for: { var: SERVICES }
+        cmd: docker build -f .docker/{{.ITEM}}/Dockerfile -t cilab/{{.ITEM}}:{{.TAG}} app/{{.ITEM}}
+
+  load:
+    desc: Load the 4 images into the kind cluster
+    cmds:
+      - for: { var: SERVICES }
+        cmd: kind load docker-image cilab/{{.ITEM}}:{{.TAG}} --name {{.CLUSTER}}
+
+  deploy:
+    desc: Apply one overlay (ENV=dev|staging|prod, default dev) and wait for all rollouts
+    cmds:
+      - kubectl apply -k .k8s/overlays/{{.ENV}}
+      - |
+        for d in facts counter image frontend; do
+          kubectl rollout status deployment/$d -n cilab-{{.ENV}} --timeout=180s
+        done
+
+  deploy-all:
+    desc: Build + load images, then apply dev, staging and prod overlays
+    deps: [build, load]
+    cmds:
+      - for: { var: ENVIRONMENTS }
+        task: deploy
+        vars:
+          ENV: '{{.ITEM}}'
+
+  smoke:
+    desc: Smoke-test all three environments through the ingress (curl --resolve, no /etc/hosts needed)
+    cmds:
+      - |
+        set -e
+        for env in dev staging prod; do
+          code=000
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.cilab.local:8080:127.0.0.1" "http://$env.cilab.local:8080/")
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          echo "$env frontend -> HTTP $code"
+          [ "$code" = "200" ] || { echo "FAIL: $env frontend not 200"; exit 1; }
+        done
+      - |
+        set -e
+        body=''
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          body=$(curl -sf --resolve dev.cilab.local:8080:127.0.0.1 'http://dev.cilab.local:8080/api/facts?topic=rocket' 2>/dev/null) && break
+          sleep 3
+        done
+        echo "dev /api/facts -> $(echo "$body" | head -c 120)"
+        echo "$body" | grep -q '"facts"' || { echo "FAIL: /api/facts did not return facts JSON"; exit 1; }
+
+  hosts:
+    desc: Idempotently add the three cilab hosts to /etc/hosts (browser use only; curls above use --resolve)
+    cmds:
+      - |
+        line='127.0.0.1 dev.cilab.local staging.cilab.local prod.cilab.local'
+        if grep -qF 'dev.cilab.local' /etc/hosts; then
+          echo 'cilab hosts already present in /etc/hosts'
+        else
+          printf '%s\n' "$line" | sudo tee -a /etc/hosts > /dev/null
+          echo "added to /etc/hosts: $line"
+        fi

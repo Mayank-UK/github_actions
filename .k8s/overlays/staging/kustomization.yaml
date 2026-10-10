@@ -1,0 +1,19 @@
+# staging overlay: namespace cilab-staging, host staging.cilab.local,
+# 1 replica each (base defaults). Identical to dev except namespace/host.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- ../../base
+
+namespace: cilab-staging
+
+patches:
+- patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: staging.cilab.local
+  target:
+    kind: Ingress
+    name: cilab

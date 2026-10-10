@@ -66,8 +66,9 @@ tasks:
 
   deploy-all:
     desc: Build + load images, then apply dev, staging and prod overlays
-    deps: [build, load]
+    deps: [build]
     cmds:
+      - task: load
       - for: { var: ENVIRONMENTS }
         task: deploy
         vars:

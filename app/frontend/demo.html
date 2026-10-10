@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>github-actions — live demo</title>
+<!-- k8slab-style one-action demo: ONE topic → ONE combined result card.
+     The services talk to each other — the counts in the card were computed
+     by the counter service, called BY the facts service, not by this page.
+     Same design tokens as index.html (no external assets). -->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #57606a; --border: #d0d7de;
+    --code-bg: #f6f8fa; --accent: #0969da; --hover: #f3f4f6;
+    --error: #d1242f;
+  }
+  html[data-theme="dark"] {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
+    --code-bg: #161b22; --accent: #4493f8; --hover: #161b22;
+  }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme]) {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
+      --code-bg: #161b22; --accent: #4493f8; --hover: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+    gap: 12px; padding: 10px 20px; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand { font-weight: 700; }
+  .topbar .brand code { background: var(--code-bg); }
+  .topbar .spacer { flex: 1; }
+  .topbar a, .topbar button {
+    font: inherit; font-size: .85rem; padding: 4px 12px; cursor: pointer;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; text-decoration: none;
+  }
+  .topbar a:hover, .topbar button:hover { background: var(--hover); }
+  .wrap { max-width: 720px; margin: 40px auto 96px; padding: 0 20px; }
+  .wrap h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .3em; }
+  .wrap .sub { color: var(--muted); margin: 0 0 2em; }
+  form.row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type="text"] {
+    font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px;
+    flex: 1; min-width: 220px;
+  }
+  button.action {
+    font: inherit; font-size: .95rem; padding: 9px 20px; cursor: pointer;
+    color: var(--bg); background: var(--accent); border: 1px solid var(--accent);
+    border-radius: 6px; white-space: nowrap;
+  }
+  button.action:disabled { opacity: .55; cursor: wait; }
+  #result { margin-top: 26px; }
+  .card-result {
+    border: 1px solid var(--border); border-radius: 8px; padding: 24px 26px;
+  }
+  .card-result h2 { font-size: 1.35rem; margin: 0 0 2px; text-transform: capitalize; }
+  .card-result img {
+    max-width: 100%; max-height: 380px; border-radius: 6px;
+    border: 1px solid var(--border); display: block; margin: 14px 0 4px;
+  }
+  .card-result .caption { font-size: .85rem; color: var(--muted); margin: 0 0 4px; }
+  .card-result p.desc { margin: 14px 0 0; }
+  .counts {
+    margin-top: 16px; padding: 10px 14px; border-radius: 6px;
+    background: var(--code-bg); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .9rem;
+  }
+  .counts .note {
+    font-family: inherit; font-size: .78rem; color: var(--muted); margin-top: 4px;
+  }
+  .part-error { color: var(--error); margin: 10px 0 0; }
+  .all-error { color: var(--error); white-space: pre-wrap; }
+  details.hood {
+    margin-top: 16px; padding: .6em 1em; border: 1px dashed var(--border);
+    border-radius: 8px; font-size: .88rem; color: var(--muted);
+  }
+  details.hood summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+  details.hood li { margin: .4em 0; }
+  details.hood code {
+    padding: 1px 5px; border-radius: 5px; background: var(--code-bg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .85em;
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand"><code>github-actions</code> demo</span>
+  <span class="spacer"></span>
+  <a href="/">← back to the guide</a>
+  <button id="theme-toggle" type="button" title="Toggle light/dark theme">◐ theme</button>
+</header>
+
+<main class="wrap">
+  <h1>github-actions — live microservices demo</h1>
+  <p class="sub">One topic in, one combined result out. Your browser makes two
+  requests (facts + image); the word counts arrive because the <em>services
+  talk to each other</em> — the facts pod calls the counter pod itself before
+  answering.</p>
+
+  <form class="row" id="go-form">
+    <input type="text" id="topic" placeholder="a topic, e.g. antarctica" autocomplete="off" autofocus>
+    <button class="action" id="btn-go" type="submit">Generate result</button>
+  </form>
+
+  <div id="result" aria-live="polite"></div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* theme: stored choice shared with the guide page */
+  var root = document.documentElement;
+  try {
+    var saved = localStorage.getItem("guide-theme");
+    if (saved === "light" || saved === "dark") root.dataset.theme = saved;
+  } catch (e) { /* private mode: stick to the media query */ }
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var dark = (root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("guide-theme", root.dataset.theme); } catch (e) {}
+  });
+
+  var TIMEOUT_MS = 60000; /* the lab may be slow under memory pressure — but never hang */
+
+  /* fetchJSON: always resolves {ok, status, data|Error-like}; times out */
+  function fetchJSON(url, options) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+    return fetch(url, Object.assign({ credentials: "same-origin", signal: ctrl.signal }, options))
+      .then(function (res) {
+        return res.text().then(function (body) {
+          var data = null;
+          try { data = JSON.parse(body); } catch (e) { /* non-JSON body: keep null */ }
+          return { ok: res.ok, status: res.status, statusText: res.statusText, data: data, body: body };
+        });
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") {
+          return { ok: false, status: 0, statusText: "timed out after " + (TIMEOUT_MS / 1000) + "s (cluster busy?)", data: null, body: "" };
+        }
+        return { ok: false, status: 0, statusText: (err && err.message) || "network error", data: null, body: "" };
+      })
+      .finally(function () { clearTimeout(timer); });
+  }
+
+  /* render helpers — textContent only, never innerHTML (all text is remote data) */
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function link(url, text) {
+    var a = document.createElement("a");
+    a.href = url;
+    a.textContent = text;
+    return a;
+  }
+  function errText(r) {
+    if (r.data && r.data.error) return r.data.error;
+    if (r.status) return "HTTP " + r.status + (r.statusText ? " " + r.statusText : "");
+    return r.statusText || "request failed";
+  }
+
+  var resultBox = document.getElementById("result");
+  var goBtn = document.getElementById("btn-go");
+  var topicInput = document.getElementById("topic");
+
+  function clearResult() { while (resultBox.firstChild) resultBox.removeChild(resultBox.firstChild); }
+
+  function renderCard(topic, facts, image) {
+    clearResult();
+    var card = el("section", "card-result");
+    card.appendChild(el("h2", null, topic));
+
+    /* --- image half (may have failed independently of facts) --- */
+    if (image.ok && image.data && image.data.imageUrl && /^https?:/i.test(image.data.imageUrl)) {
+      var img = el("img");
+      img.src = image.data.imageUrl;
+      img.alt = image.data.pageTitle || ("image for " + topic);
+      img.referrerPolicy = "no-referrer";
+      var imgWrap = el("div");
+      img.addEventListener("error", function () {
+        imgWrap.replaceChild(el("p", "part-error", "the API returned an image URL but it failed to load: " + image.data.imageUrl), img);
+      });
+      imgWrap.appendChild(img);
+      card.appendChild(imgWrap);
+      card.appendChild(el("p", "caption", image.data.pageTitle || image.data.imageUrl));
+    } else if (image.ok) {
+      /* API answered 200 but had no usable Commons hit (imageUrl null) */
+      card.appendChild(el("p", "caption", "no image found for this topic — the Commons search had no usable result"));
+    } else {
+      card.appendChild(el("p", "part-error", "image service: " + errText(image)));
+    }
+
+    /* --- facts half --- */
+    if (facts.ok && facts.data) {
+      card.appendChild(el("p", "desc", facts.data.facts || "(empty facts text)"));
+      if (facts.data.sourceUrl && /^https?:/i.test(facts.data.sourceUrl)) {
+        var srcP = el("p", "caption");
+        srcP.appendChild(document.createTextNode("source: "));
+        srcP.appendChild(link(facts.data.sourceUrl, facts.data.sourceUrl));
+        card.appendChild(srcP);
+      }
+
+      /* --- counts: computed by counter, called BY facts — not by this page --- */
+      var counts = el("div", "counts");
+      if (facts.data.counts) {
+        counts.appendChild(el("div", null, "words: " + facts.data.counts.words +
+          " · characters: " + facts.data.counts.characters +
+          " · uniqueWords: " + facts.data.counts.uniqueWords));
+      } else {
+        counts.appendChild(el("div", null, "counts unavailable"));
+      }
+      counts.appendChild(el("div", "note",
+        "counted by the counter service (called by facts, not by this page)"));
+      card.appendChild(counts);
+    } else {
+      card.appendChild(el("p", "part-error", "facts service: " + errText(facts)));
+    }
+
+    /* --- under the hood --- */
+    var hood = el("details", "hood");
+    hood.appendChild(el("summary", null, "Under the hood — the requests behind this card"));
+    var ol = el("ol");
+    ol.appendChild(el("li", null, "This page → GET /api/facts?topic=" + topic +
+      "  — ingress → frontend (nginx) → facts pod (Python :8000)"));
+    ol.appendChild(el("li", null, "This page → GET /api/image?topic=" + topic +
+      "  — ingress → frontend (nginx) → image pod (Go :8080), sent in parallel with 1"));
+    ol.appendChild(el("li", null, "You never made this one: facts pod → POST counter:3000/count" +
+      " (service-to-service inside the cluster) — the counts row above came back" +
+      " already computed inside the /api/facts response."));
+    hood.appendChild(ol);
+    card.appendChild(hood);
+
+    resultBox.appendChild(card);
+  }
+
+  document.getElementById("go-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (goBtn.disabled) return;
+    var t = topicInput.value.trim();
+    if (!t) {
+      clearResult();
+      resultBox.appendChild(el("p", "all-error", "topic is required (the APIs reject an empty topic with the same words)"));
+      return;
+    }
+    goBtn.disabled = true;
+    goBtn.textContent = "Generating …";
+    clearResult();
+    resultBox.appendChild(el("p", null, "asking the cluster for “" + t + "” (two requests, in parallel) …"));
+
+    var q = encodeURIComponent(t);
+    Promise.all([
+      fetchJSON("/api/facts?topic=" + q),
+      fetchJSON("/api/image?topic=" + q)
+    ]).then(function (rs) {
+      var facts = rs[0], image = rs[1];
+      if (!facts.ok && !image.ok) {
+        clearResult();
+        resultBox.appendChild(el("p", "all-error",
+          "both services failed — facts: " + errText(facts) + " · image: " + errText(image)));
+        return;
+      }
+      renderCard(t, facts, image);
+    }).finally(function () {
+      goBtn.disabled = false;
+      goBtn.textContent = "Generate result";
+    });
+  });
+})();
+</script>
+</body>
+</html>

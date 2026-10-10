@@ -134,6 +134,26 @@ def check_sourced(block, source_path, failures, guide_name):
     return ok
 
 
+def scan_raw_html_tags(lines):
+    """Raw <script>/<style>/<template> outside a code fence is prose that will
+    be passed through by markdown renderers; via innerHTML it makes the browser
+    parser swallow the rest of the page (happened: literal "Run <script>" in a
+    sentence blanked 80% of the guide). Fence-internal occurrences are safe."""
+    bad = []
+    in_fence = False
+    for i, line in enumerate(lines, 1):
+        s = line.lstrip()
+        if s.startswith("```") or s.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            low = line.lower()
+            for t in ("<script", "<style", "<template"):
+                if t in low:
+                    bad.append((i, t))
+    return bad
+
+
 def main(argv):
     if len(argv) > 2:
         print("usage: check_snippets.py [GUIDE.md path]", file=sys.stderr)
@@ -164,6 +184,12 @@ def main(argv):
             sourced_total += 1
             if check_sourced(block, (guide.parent / path), failures, guide_name):
                 sourced_ok += 1
+
+    for ln, tag in scan_raw_html_tags(guide_lines):
+        failures.append(
+            "%s:%d: raw %s… outside a code fence — escape it (a renderer "
+            "innerHTML pass will swallow the rest of the page)" % (guide_name, ln, tag)
+        )
 
     for f in failures:
         print("FAIL " + f)

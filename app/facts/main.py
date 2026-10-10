@@ -1,7 +1,7 @@
 """Facts microservice (service A).
 
 Turns a topic into facts from the free Wikipedia REST API and forwards the
-text to the counter service (B) for word counting. Part of the cilab CI/CD
+text to the counter service (B) for word counting. Part of the github-actions CI/CD
 lab; the external API is free and key-less.
 """
 
@@ -25,7 +25,7 @@ app = FastAPI()
 
 SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{}"
 OPENSEARCH_URL = "https://en.wikipedia.org/w/api.php"
-HEADERS = {"User-Agent": "cilab-project/1.0"}
+HEADERS = {"User-Agent": "github-actions-project/1.0"}
 TIMEOUT = 10
 COUNTER_URL_DEFAULT = "http://counter:3000"
 NO_FACTS_TEMPLATE = "No facts found for '{topic}'. Try another topic."

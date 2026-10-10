@@ -1,22 +1,122 @@
 version: '3'
 
-# Local-dev loop for the cilab lab. Everything runs from the repo root
+# Local-dev loop for the github-actions lab. Everything runs from the repo root
 # (go-task sets the working dir to this Taskfile's directory).
 
 vars:
-  CLUSTER: cilab
+  CLUSTER: github-actions
   TAG: p0
   SERVICES:
     - facts
     - counter
     - image
     - frontend
-  ENVIRONMENTS: [dev, staging, prod]
-  ENV: dev # default environment for `task deploy` — override: task deploy ENV=staging
+  ENVIRONMENTS: [development, staging, production]
+  ENV: development # default environment for `task deploy` — override: task deploy ENV=staging
   INGRESS_NGINX_VERSION: controller-v1.15.1
   INGRESS_NGINX_URL: 'https://raw.githubusercontent.com/kubernetes/ingress-nginx/{{.INGRESS_NGINX_VERSION}}/deploy/static/provider/kind/deploy.yaml'
 
 tasks:
+  up:
+    desc: Full bootstrap — the "resume after reboot (or 2 years later)" one-shot. Docker check, kind cluster (start stopped nodes, or create+ingress), runner check, overlays only if namespaces missing, then smoke.
+    cmds:
+      # 1. Everything runs on Docker Desktop (kind nodes are containers).
+      - |
+        if ! docker info >/dev/null 2>&1; then
+          echo 'Docker Desktop is not running.' >&2
+          echo '  Start it (open -a Docker / Launchpad) and wait for the whale, then re-run: task up' >&2
+          exit 1
+        fi
+        echo 'docker: ok'
+      # 2. Cluster: start stopped kind node containers, else create from scratch.
+      - |
+        if kind get clusters 2>/dev/null | grep -qx '{{.CLUSTER}}'; then
+          stopped="$(docker ps -a --filter 'name={{.CLUSTER}}-' --filter status=exited -q)"
+          if [ -n "$stopped" ]; then
+            echo "starting stopped kind nodes: $stopped"
+            docker start $stopped
+          else
+            echo 'kind nodes already running'
+          fi
+          # API server needs a moment after container start.
+          ready=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            kubectl get --raw /readyz >/dev/null 2>&1 && { ready=1; break; } || sleep 5
+          done
+          [ "$ready" = 1 ] || { echo 'FAIL: kind API server not ready after 100s' >&2; exit 1; }
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        else
+          echo 'no {{.CLUSTER}} cluster — creating'
+          task: cluster-create
+          task: ingress
+        fi
+      # 3. Self-hosted runner: verify only, never auto-start (it's a
+      #    user-owned foreground-ish process, not something task should spawn).
+      - |
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner: running'
+        else
+          echo 'runner: NOT running. Start it with:'
+          echo '  cd /Users/mak/Development/temp/actions-runner && nohup ./run.sh > runner.out 2>&1 &'
+          echo '(or: task runner-start)'
+        fi
+      # 4. Overlays only where the namespace is missing (reboot-resume keeps them).
+      - |
+        for env in development staging production; do
+          if kubectl get namespace "github-actions-$env" >/dev/null 2>&1; then
+            echo "namespace github-actions-$env: present"
+          else
+            echo "namespace github-actions-$env missing — applying overlay"
+            kubectl apply -k ".k8s/overlays/$env"
+            for d in facts counter image frontend; do
+              kubectl rollout status deployment/$d -n "github-actions-$env" --timeout=300s
+            done
+          fi
+        done
+      # 5. Prove the whole stack answers.
+      - task: smoke
+
+  runner-start:
+    desc: Start the self-hosted GitHub Actions runner (nohup'd; safe to re-run — no-op if already up)
+    cmds:
+      - |
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner already running:'
+          pgrep -fl 'Runner[.]Listener'
+          exit 0
+        fi
+        cd /Users/mak/Development/temp/actions-runner && nohup ./run.sh > runner.out 2>&1 &
+        sleep 3
+        if pgrep -f 'Runner[.]Listener' >/dev/null; then
+          echo 'runner started (log: /Users/mak/Development/temp/actions-runner/runner.out)'
+        else
+          echo 'FAIL: runner did not stay up — check /Users/mak/Development/temp/actions-runner/runner.out' >&2
+          exit 1
+        fi
+
+  runner-stop:
+    desc: Stop the self-hosted runner (shows the matching process count and asks before pkill)
+    cmds:
+      - |
+        pids="$(pgrep -f 'Runner[.]Listener' || true)"
+        if [ -z "$pids" ]; then
+          echo 'runner not running'
+          exit 0
+        fi
+        count="$(printf '%s\n' "$pids" | wc -l | tr -d ' ')"
+        echo "will terminate $count Runner.Listener process(es): $(echo $pids)"
+        printf 'proceed? [y/N] '
+        read -r answer
+        case "$answer" in
+          y|Y) pkill -f 'Runner[.]Listener' && echo 'runner stopped' ;;
+          *)   echo 'aborted'; exit 1 ;;
+        esac
+
+  guide-check:
+    desc: Verify GUIDE.md snippets against their source files (the same check the CI guide job runs)
+    cmds:
+      - python3 scripts/check_snippets.py
+
   cluster-create:
     desc: Create the kind cluster (1 ingress-ready control-plane + 2 workers, host 8080 -> node 80)
     cmds:
@@ -44,44 +144,68 @@ tasks:
       - kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
 
   build:
-    desc: Build the 4 service images (plain docker build — host and kind nodes are both arm64)
+    desc: Build the 4 service images (plain docker build — host and kind nodes are both arm64). frontend builds from the repo-root context so GUIDE.md gets baked into the image.
     cmds:
+      # The frontend Dockerfile COPYs app/frontend/* AND the repo-root GUIDE.md,
+      # so its build context is `.` — not app/frontend.
       - for: { var: SERVICES }
-        cmd: docker build -f .docker/{{.ITEM}}/Dockerfile -t cilab/{{.ITEM}}:{{.TAG}} app/{{.ITEM}}
+        cmd: docker build -f .docker/{{.ITEM}}/Dockerfile -t github-actions/{{.ITEM}}:{{.TAG}} {{if eq .ITEM "frontend"}}.{{else}}app/{{.ITEM}}{{end}}
 
   load:
     desc: Load the 4 images into the kind cluster
     cmds:
       - for: { var: SERVICES }
-        cmd: kind load docker-image cilab/{{.ITEM}}:{{.TAG}} --name {{.CLUSTER}}
+        cmd: kind load docker-image github-actions/{{.ITEM}}:{{.TAG}} --name {{.CLUSTER}}
 
   deploy:
-    desc: Apply one overlay (ENV=dev|staging|prod, default dev) and wait for all rollouts
+    desc: Apply one overlay (ENV=development|staging|production, default development) and wait for all rollouts
     cmds:
       - kubectl apply -k .k8s/overlays/{{.ENV}}
       - |
         for d in facts counter image frontend; do
-          kubectl rollout status deployment/$d -n cilab-{{.ENV}} --timeout=180s
+          kubectl rollout status deployment/$d -n github-actions-{{.ENV}} --timeout=180s
         done
 
   deploy-all:
-    desc: Build + load images, then apply dev, staging and prod overlays
-    deps: [build, load]
+    desc: Build + load images, then apply development, staging and production overlays
+    deps: [build]
     cmds:
+      - task: load
       - for: { var: ENVIRONMENTS }
         task: deploy
         vars:
           ENV: '{{.ITEM}}'
+
+  pull-secret:
+    desc: Apply the ghcr-pull imagePullSecret to all three namespaces (requires GHCR_PULL_TOKEN env var — a classic PAT with read:packages)
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "${GHCR_PULL_TOKEN:-}" ]; then
+          echo "REFUSED: GHCR_PULL_TOKEN is empty or unset." >&2
+          echo "  Create a classic PAT with read:packages at https://github.com/settings/tokens," >&2
+          echo "  then: export GHCR_PULL_TOKEN=<token> && task pull-secret" >&2
+          exit 1
+        fi
+        owner="${GHCR_OWNER:-Mayank-UK}"
+        for env in development staging production; do
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="$owner" \
+            --docker-password="$GHCR_PULL_TOKEN" \
+            -n "github-actions-$env" \
+            --dry-run=client -o yaml | kubectl apply -f -
+        done
 
   smoke:
     desc: Smoke-test all three environments through the ingress (curl --resolve, no /etc/hosts needed)
     cmds:
       - |
         set -e
-        for env in dev staging prod; do
+        for env in development staging production; do
           code=000
           for _ in 1 2 3 4 5 6 7 8 9 10; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.cilab.local:8080:127.0.0.1" "http://$env.cilab.local:8080/")
+            code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$env.github-actions.test:8080:127.0.0.1" "http://$env.github-actions.test:8080/")
             [ "$code" = "200" ] && break
             sleep 3
           done
@@ -92,20 +216,27 @@ tasks:
         set -e
         body=''
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-          body=$(curl -sf --resolve dev.cilab.local:8080:127.0.0.1 'http://dev.cilab.local:8080/api/facts?topic=rocket' 2>/dev/null) && break
+          body=$(curl -sf --resolve development.github-actions.test:8080:127.0.0.1 'http://development.github-actions.test:8080/api/facts?topic=rocket' 2>/dev/null) && break
           sleep 3
         done
-        echo "dev /api/facts -> $(echo "$body" | head -c 120)"
+        echo "development /api/facts -> $(echo "$body" | head -c 120)"
         echo "$body" | grep -q '"facts"' || { echo "FAIL: /api/facts did not return facts JSON"; exit 1; }
 
   hosts:
-    desc: Idempotently add the three cilab hosts to /etc/hosts (browser use only; curls above use --resolve)
+    desc: ONE-TIME setup — idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
     cmds:
       - |
-        line='127.0.0.1 dev.cilab.local staging.cilab.local prod.cilab.local'
-        if grep -qF 'dev.cilab.local' /etc/hosts; then
-          echo 'cilab hosts already present in /etc/hosts'
+        line='127.0.0.1 development.github-actions.test staging.github-actions.test production.github-actions.test'
+        if grep -qF 'development.github-actions.test' /etc/hosts; then
+          echo 'github-actions hosts already present in /etc/hosts'
         else
+          # Replace, don't just append: drop any pre-rename line (dev./prod.
+          # hosts). The pattern cannot match the full-word hosts ('dev.'/'prod.'
+          # require a literal dot right after the short word).
+          if grep -qE '(dev|prod)\.github-actions\.test' /etc/hosts; then
+            grep -vE '(dev|prod)\.github-actions\.test' /etc/hosts | sudo tee /etc/hosts > /dev/null
+            echo 'removed pre-rename github-actions hosts line from /etc/hosts'
+          fi
           printf '%s\n' "$line" | sudo tee -a /etc/hosts > /dev/null
           echo "added to /etc/hosts: $line"
         fi

@@ -1,0 +1,103 @@
+name: deploy-env
+description: >-
+  Deploy all four services to one environment namespace: rotate the ghcr-pull
+  imagePullSecret, point the overlay at the CI-built images (kustomize edit
+  set image), apply the overlay, then gate on all four rollouts.
+
+# Secrets: composite actions CANNOT read the `secrets` context, so the caller
+# injects the GHCR pull token via env (secret values passed through env stay
+# masked in run logs):
+#
+  #   - uses: ./.github/actions/deploy-env
+  #     env:
+  #       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+  #     with:
+  #       env: development
+  #       ...
+#
+# Requires on the runner host: kubectl 1.36.x, kustomize 5.x, git
+# (see runner/README.md).
+
+inputs:
+  env:
+    description: 'Target environment: development | staging | production (namespace github-actions-<env>, overlay .k8s/overlays/<env>)'
+    required: true
+  image_prefix:
+    description: 'Registry path prefix of the CI-built images, e.g. ghcr.io/mayank-uk (the prefix also supplies the GHCR pull username)'
+    required: true
+  image_tag:
+    description: 'Image tag to deploy for all four services, e.g. sha-abcd123'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Rotate ghcr-pull imagePullSecret
+      # create --dry-run=client | apply = idempotent create-or-update: safe to
+      # re-run every deploy, and the way the token gets rotated cluster-side.
+      shell: bash
+      env:
+        DEPLOY_ENV: ${{ inputs.env }}
+        IMAGE_PREFIX: ${{ inputs.image_prefix }}
+      run: |
+        set -euo pipefail
+        : "${GHCR_PULL_TOKEN:?GHCR_PULL_TOKEN is not set — the caller must pass it via env from secrets.GHCR_PULL_TOKEN}"
+        owner="${IMAGE_PREFIX##*/}"
+        kubectl create secret docker-registry ghcr-pull \
+          --docker-server=ghcr.io \
+          --docker-username="$owner" \
+          --docker-password="$GHCR_PULL_TOKEN" \
+          -n "github-actions-$DEPLOY_ENV" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Point overlay at the built images
+      # Runner checkout is ephemeral, so editing the overlay in the working
+      # tree (never committed) is the simplest GitOps-lite image override:
+      # overlay image entries override the base's local p0 tags by name.
+      shell: bash
+      env:
+        DEPLOY_ENV: ${{ inputs.env }}
+        IMAGE_PREFIX: ${{ inputs.image_prefix }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+      run: |
+        set -euo pipefail
+        for svc in facts counter image frontend; do
+          (
+            cd ".k8s/overlays/$DEPLOY_ENV"
+            kustomize edit set image "github-actions/$svc=$IMAGE_PREFIX/github-actions-$svc:$IMAGE_TAG"
+          )
+        done
+
+    - name: Apply overlay
+      shell: bash
+      env:
+        DEPLOY_ENV: ${{ inputs.env }}
+      run: |
+        set -euo pipefail
+        kubectl apply -k ".k8s/overlays/$DEPLOY_ENV"
+
+    - name: Gate on rollouts
+      # Fails the job if any of the four deployments does not roll out within
+      # 180s (e.g. ImagePullBackOff from a tag that was never pushed).
+      shell: bash
+      env:
+        DEPLOY_ENV: ${{ inputs.env }}
+      run: |
+        set -euo pipefail
+        for svc in facts counter image frontend; do
+          kubectl rollout status "deployment/$svc" -n "github-actions-$DEPLOY_ENV" --timeout=180s
+        done
+
+    - name: Deploy summary
+      shell: bash
+      env:
+        DEPLOY_ENV: ${{ inputs.env }}
+        IMAGE_PREFIX: ${{ inputs.image_prefix }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+      run: |
+        set -euo pipefail
+        echo "::group::Deployed to github-actions-$DEPLOY_ENV ($IMAGE_TAG)"
+        for svc in facts counter image frontend; do
+          echo "github-actions-$svc -> $IMAGE_PREFIX/github-actions-$svc:$IMAGE_TAG"
+        done
+        echo "::endgroup::"

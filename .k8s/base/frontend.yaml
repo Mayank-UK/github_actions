@@ -6,7 +6,7 @@ metadata:
   name: frontend
   labels:
     app.kubernetes.io/name: frontend
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   replicas: 1
   selector:
@@ -16,11 +16,15 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: frontend
-        app.kubernetes.io/part-of: cilab
+        app.kubernetes.io/part-of: github-actions
     spec:
+      # ghcr-pull: used only when the kubelet actually pulls (private GHCR
+      # images deployed by CD). Local dev preloads images, so never consulted.
+      imagePullSecrets:
+      - name: ghcr-pull
       containers:
       - name: frontend
-        image: cilab/frontend:p0
+        image: github-actions/frontend:p0
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -51,7 +55,7 @@ metadata:
   name: frontend
   labels:
     app.kubernetes.io/name: frontend
-    app.kubernetes.io/part-of: cilab
+    app.kubernetes.io/part-of: github-actions
 spec:
   type: ClusterIP
   selector:

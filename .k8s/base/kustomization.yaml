@@ -15,13 +15,13 @@ resources:
 
 # Local kind images built by `task build`/`task load`. CD (P3) overrides these
 # per environment with:
-#   kustomize edit set image cilab/facts=ghcr.io/<user>/cilab-facts:sha-<short>
+#   kustomize edit set image github-actions/facts=ghcr.io/<user>/github-actions-facts:sha-<short>
 images:
-- name: cilab/facts
+- name: github-actions/facts
   newTag: p0
-- name: cilab/counter
+- name: github-actions/counter
   newTag: p0
-- name: cilab/image
+- name: github-actions/image
   newTag: p0
-- name: cilab/frontend
+- name: github-actions/frontend
   newTag: p0

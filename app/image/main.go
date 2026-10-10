@@ -14,7 +14,7 @@ import (
 const (
 	listenAddr = ":8080"
 	commonsAPI = "https://commons.wikimedia.org/w/api.php"
-	userAgent  = "cilab-project/1.0"
+	userAgent  = "github-actions-project/1.0"
 )
 
 // httpClient is shared for all outbound calls to the Commons API.

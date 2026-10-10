@@ -19,6 +19,11 @@ spec:
         app.kubernetes.io/name: facts
         app.kubernetes.io/part-of: github-actions
     spec:
+      # CD-deployed images live in private GHCR; the ghcr-pull secret is
+      # created by the deploy action / `task pull-secret`. Harmless for local
+      # dev: IfNotPresent + preloaded images means the kubelet never pulls.
+      imagePullSecrets:
+      - name: ghcr-pull
       containers:
       - name: facts
         image: github-actions/facts:p0

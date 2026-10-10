@@ -74,6 +74,27 @@ tasks:
         vars:
           ENV: '{{.ITEM}}'
 
+  pull-secret:
+    desc: Apply the ghcr-pull imagePullSecret to all three namespaces (requires GHCR_PULL_TOKEN env var — a classic PAT with read:packages)
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "${GHCR_PULL_TOKEN:-}" ]; then
+          echo "REFUSED: GHCR_PULL_TOKEN is empty or unset." >&2
+          echo "  Create a classic PAT with read:packages at https://github.com/settings/tokens," >&2
+          echo "  then: export GHCR_PULL_TOKEN=<token> && task pull-secret" >&2
+          exit 1
+        fi
+        owner="${GHCR_OWNER:-Mayank-UK}"
+        for env in dev staging prod; do
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="$owner" \
+            --docker-password="$GHCR_PULL_TOKEN" \
+            -n "github-actions-$env" \
+            --dry-run=client -o yaml | kubectl apply -f -
+        done
+
   smoke:
     desc: Smoke-test all three environments through the ingress (curl --resolve, no /etc/hosts needed)
     cmds:

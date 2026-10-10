@@ -17,6 +17,10 @@ spec:
         app.kubernetes.io/name: image
         app.kubernetes.io/part-of: github-actions
     spec:
+      # ghcr-pull: used only when the kubelet actually pulls (private GHCR
+      # images deployed by CD). Local dev preloads images, so never consulted.
+      imagePullSecrets:
+      - name: ghcr-pull
       containers:
       - name: image
         image: github-actions/image:p0

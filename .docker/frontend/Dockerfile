@@ -31,7 +31,8 @@ RUN apk add --no-cache curl \
  | sha256sum -c - \
  && apk del curl
 
-COPY app/frontend/index.html /usr/share/nginx/html/
+# *.html: the guide shell (index.html) + the interactive demo page (demo.html).
+COPY app/frontend/*.html /usr/share/nginx/html/
 COPY app/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY GUIDE.md /usr/share/nginx/html/GUIDE.md
 

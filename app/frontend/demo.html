@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>github-actions — live demo</title>
+<!-- Self-contained interactive demo against the three live services behind
+     this ingress. Same design tokens as index.html (no external assets);
+     every request goes browser → ingress → frontend nginx → service pod. -->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #57606a; --border: #d0d7de;
+    --code-bg: #f6f8fa; --accent: #0969da; --hover: #f3f4f6;
+    --error: #d1242f; --ok: #1a7f37;
+  }
+  html[data-theme="dark"] {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
+    --code-bg: #161b22; --accent: #4493f8; --hover: #161b22;
+  }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme]) {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
+      --code-bg: #161b22; --accent: #4493f8; --hover: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+    gap: 12px; padding: 10px 20px; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand { font-weight: 700; }
+  .topbar .brand code { background: var(--code-bg); }
+  .topbar .spacer { flex: 1; }
+  .topbar a, .topbar button {
+    font: inherit; font-size: .85rem; padding: 4px 12px; cursor: pointer;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; text-decoration: none;
+  }
+  .topbar a:hover, .topbar button:hover { background: var(--hover); }
+  .card {
+    max-width: 720px; margin: 40px auto 96px; padding: 0 20px;
+  }
+  .card h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .3em; }
+  .card .sub { color: var(--muted); margin: 0 0 2em; }
+  section {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 22px; margin: 24px 0;
+  }
+  section h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  .endpoint {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .8rem; color: var(--muted); margin: 0 0 14px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  input[type="text"], textarea {
+    font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  }
+  input[type="text"] { flex: 1; min-width: 200px; }
+  textarea { width: 100%; min-height: 130px; resize: vertical; margin-top: 10px; }
+  button.action {
+    font: inherit; font-size: .9rem; padding: 8px 16px; cursor: pointer;
+    color: var(--bg); background: var(--accent); border: 1px solid var(--accent);
+    border-radius: 6px; white-space: nowrap;
+  }
+  button.action:disabled { opacity: .55; cursor: wait; }
+  .path {
+    font-size: .8rem; color: var(--muted); margin: 14px 0 0;
+    border-top: 1px dashed var(--border); padding-top: 10px;
+  }
+  .result { margin-top: 14px; }
+  .result p { margin: .3em 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .result .stats { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .9rem; }
+  .result img {
+    max-width: 100%; max-height: 340px; border-radius: 6px;
+    border: 1px solid var(--border); display: block; margin-top: 8px;
+  }
+  .result .caption { font-size: .85rem; color: var(--muted); }
+  .result.error { color: var(--error); }
+  .result .note { color: var(--muted); font-style: italic; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand"><code>github-actions</code> demo</span>
+  <span class="spacer"></span>
+  <a href="/">← back to the guide</a>
+  <button id="theme-toggle" type="button" title="Toggle light/dark theme">◐ theme</button>
+</header>
+
+<main class="card">
+  <h1>github-actions — live microservices demo</h1>
+  <p class="sub">Every button below is a real HTTP request through the running
+  pipeline's deployment: browser → ingress → frontend (nginx) → the service's
+  pod. The frontend is a thin nginx that proxies <code>/api/*</code> to the
+  three backends — no request ever talks to a pod directly.</p>
+
+  <!-- ============ 1. facts (Python) ============ -->
+  <section>
+    <h2>1 · Facts — the Python service</h2>
+    <p class="endpoint">GET /api/facts?topic=&lt;input&gt;</p>
+    <div class="row">
+      <input type="text" id="topic" placeholder="topic, e.g. antarctica" autocomplete="off">
+      <button class="action" id="btn-facts" type="button">Get facts</button>
+    </div>
+    <div class="result" id="facts-result" aria-live="polite"></div>
+    <p class="path">this request went ingress → frontend (nginx) → <strong>facts</strong> pod (Python :8000)</p>
+  </section>
+
+  <!-- ============ 2. count (Node) ============ -->
+  <section>
+    <h2>2 · Count — the Node service</h2>
+    <p class="endpoint">POST /api/count · body {"text": "…"}</p>
+    <div class="row">
+      <button class="action" id="btn-count" type="button">Count words</button>
+    </div>
+    <textarea id="text" spellcheck="false"
+      placeholder="Press “Get facts” above to prefill this with the fetched fact text — or type anything and count it."></textarea>
+    <div class="result" id="count-result" aria-live="polite"></div>
+    <p class="path">this request went ingress → frontend (nginx) → <strong>counter</strong> pod (Node :3000)</p>
+  </section>
+
+  <!-- ============ 3. image (Go) ============ -->
+  <section>
+    <h2>3 · Image — the Go service</h2>
+    <p class="endpoint">GET /api/image?topic=&lt;input&gt;</p>
+    <div class="row">
+      <button class="action" id="btn-image" type="button">Fetch image</button>
+    </div>
+    <div class="result" id="image-result" aria-live="polite"></div>
+    <p class="path">this request went ingress → frontend (nginx) → <strong>image</strong> pod (Go :8080)</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* theme: stored choice shared with the guide page */
+  var root = document.documentElement;
+  try {
+    var saved = localStorage.getItem("guide-theme");
+    if (saved === "light" || saved === "dark") root.dataset.theme = saved;
+  } catch (e) { /* private mode: stick to the media query */ }
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var dark = (root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("guide-theme", root.dataset.theme); } catch (e) {}
+  });
+
+  var TIMEOUT_MS = 60000; /* the lab may be slow under memory pressure — but never hang */
+
+  /* fetchJSON: always resolves {ok, status, data|Error-like}; times out */
+  function fetchJSON(url, options) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+    return fetch(url, Object.assign({ credentials: "same-origin", signal: ctrl.signal }, options))
+      .then(function (res) {
+        return res.text().then(function (body) {
+          var data = null;
+          try { data = JSON.parse(body); } catch (e) { /* non-JSON body: keep null */ }
+          return { ok: res.ok, status: res.status, statusText: res.statusText, data: data, body: body };
+        });
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") {
+          return { ok: false, status: 0, statusText: "timed out after " + (TIMEOUT_MS / 1000) + "s (cluster busy?)", data: null, body: "" };
+        }
+        return { ok: false, status: 0, statusText: (err && err.message) || "network error", data: null, body: "" };
+      })
+      .finally(function () { clearTimeout(timer); });
+  }
+
+  /* render helpers — textContent only, never innerHTML (facts text is remote data) */
+  function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  function msg(el, text, isError) {
+    clear(el);
+    el.className = "result" + (isError ? " error" : "");
+    var p = document.createElement("p");
+    p.textContent = text;
+    el.appendChild(p);
+    return el;
+  }
+  function errText(r, fallback) {
+    if (r.data && r.data.error) return r.data.error;
+    if (r.status) return "HTTP " + r.status + (r.statusText ? " " + r.statusText : "");
+    return r.statusText || fallback;
+  }
+  function withButton(btn, fn) {
+    return function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      Promise.resolve(fn()).finally(function () { btn.disabled = false; });
+    };
+  }
+
+  var topicInput = document.getElementById("topic");
+  var factsResult = document.getElementById("facts-result");
+  var countResult = document.getElementById("count-result");
+  var imageResult = document.getElementById("image-result");
+  var textArea = document.getElementById("text");
+
+  function topic() { return topicInput.value.trim(); }
+
+  /* Enter in the topic box = "Get facts" (same affordance as a form) */
+  topicInput.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") document.getElementById("btn-facts").click();
+  });
+
+  /* ---------- 1. facts ---------- */
+  document.getElementById("btn-facts").addEventListener("click", withButton(
+    document.getElementById("btn-facts"),
+    function () {
+      var t = topic();
+      if (!t) { msg(factsResult, "topic is required (the API rejects an empty topic with the same words)", true); return; }
+      msg(factsResult, "fetching facts for “" + t + "” …");
+      return fetchJSON("/api/facts?topic=" + encodeURIComponent(t)).then(function (r) {
+        if (!r.ok) { msg(factsResult, errText(r, "facts request failed"), true); return; }
+        clear(factsResult);
+        factsResult.className = "result";
+        var p = document.createElement("p");
+        p.textContent = r.data.facts;
+        factsResult.appendChild(p);
+        if (r.data.sourceUrl && /^https?:/i.test(r.data.sourceUrl)) {
+          var src = document.createElement("p");
+          src.className = "caption";
+          var a = document.createElement("a");
+          a.href = r.data.sourceUrl; a.textContent = "source: " + r.data.sourceUrl;
+          src.appendChild(a);
+          factsResult.appendChild(src);
+        }
+        /* prefill the counter textarea (editable) for section 2 */
+        textArea.value = r.data.facts;
+      });
+    }
+  ));
+
+  /* ---------- 2. count ---------- */
+  document.getElementById("btn-count").addEventListener("click", withButton(
+    document.getElementById("btn-count"),
+    function () {
+      var text = textArea.value;
+      if (!text.trim()) { msg(countResult, "nothing to count — the textarea is empty", true); return; }
+      msg(countResult, "counting …");
+      return fetchJSON("/api/count", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text })
+      }).then(function (r) {
+        if (!r.ok) { msg(countResult, errText(r, "count request failed"), true); return; }
+        clear(countResult);
+        countResult.className = "result";
+        var p = document.createElement("p");
+        p.className = "stats";
+        p.textContent = "words: " + r.data.words +
+          " · characters: " + r.data.characters +
+          " · uniqueWords: " + r.data.uniqueWords;
+        countResult.appendChild(p);
+      });
+    }
+  ));
+
+  /* ---------- 3. image ---------- */
+  document.getElementById("btn-image").addEventListener("click", withButton(
+    document.getElementById("btn-image"),
+    function () {
+      var t = topic();
+      if (!t) { msg(imageResult, "topic is required (the image service rejects an empty topic with the same words)", true); return; }
+      msg(imageResult, "searching Wikimedia Commons for “" + t + "” …");
+      return fetchJSON("/api/image?topic=" + encodeURIComponent(t)).then(function (r) {
+        if (!r.ok) { msg(imageResult, errText(r, "image request failed"), true); return; }
+        clear(imageResult);
+        imageResult.className = "result";
+        if (r.data.imageUrl) {
+          var img = document.createElement("img");
+          img.src = r.data.imageUrl;
+          img.alt = r.data.pageTitle || ("image for " + r.data.topic);
+          img.referrerPolicy = "no-referrer";
+          img.addEventListener("error", function () {
+            msg(imageResult, "the API returned an image URL but it failed to load: " + r.data.imageUrl, true);
+          });
+          imageResult.appendChild(img);
+          var cap = document.createElement("p");
+          cap.className = "caption";
+          cap.textContent = r.data.pageTitle || r.data.imageUrl;
+          imageResult.appendChild(cap);
+        } else {
+          var none = document.createElement("p");
+          none.className = "note";
+          none.textContent = "no image found for “" + r.data.topic + "” — the service hit the Commons API but had no usable result. Try another topic.";
+          imageResult.appendChild(none);
+        }
+      });
+    }
+  ));
+})();
+</script>
+</body>
+</html>

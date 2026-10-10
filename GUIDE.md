@@ -29,7 +29,7 @@ How to read the snippets:
   project does not use this feature* (usually because a simpler design chose
   otherwise). The guide never blurs the two.
 
-The guide has three parts:
+The guide has two parts:
 
 - **Part I — Fundamentals A–Z**: every GitHub Actions concept, ordered
   pedagogically, each grounded in this repo (or honestly marked as
@@ -37,9 +37,6 @@ The guide has three parts:
 - **Part II — The Project**: this repository's architecture, every workflow
   explained section by section, the Kubernetes side, the runner, and how a
   commit travels from `git push` to a running pod.
-- **Part III — War stories**: five real debugging episodes from this lab's
-  history, with symptoms, wrong turns, root causes, and the general lesson
-  each one taught.
 
 ---
 
@@ -340,7 +337,7 @@ on:
         default: ''
 ```
 
-One quirk worth memorizing (it bit this project — see War story 1): on a
+One quirk worth memorizing (it bit this project): on a
 repository's *very first push*, path-filtered workflows may not trigger at all,
 because GitHub has no diff base to compare against. The next matching push
 behaves normally.
@@ -604,7 +601,7 @@ matching file. (The comment encodes a real bug: Node 22 hangs if you pass it
 the bare directory here.)
 
 And the deploy workflows pin the interpreter explicitly because their scripts
-run on macOS's ancient bash (see §13 and War story 2):
+run on macOS's ancient bash (see §13):
 
 <!-- source: .github/workflows/deploy-staging.yaml -->
 ```yaml
@@ -654,7 +651,7 @@ scope, keeping the script re-readable and testable:
 ```
 
 `HEAD_SHA` is step-scope; `GITHUB_REPOSITORY_OWNER` is the runner's built-in.
-Note the style rule this repo adopted after War story 2: **workflow shell must
+Note the style rule this repo adopted: **workflow shell must
 be POSIX-safe** — `tr` instead of bash-4's `${VAR,,}`, because the
 self-hosted runner's `/bin/bash` is 3.2. Expressions like `${HEAD_SHA:0:7}`
 (substring, not lowercase expansion) are fine in bash 3.2.
@@ -1636,7 +1633,7 @@ the API services build from their `app/` subdirectories), `platforms:`,
 Why arm64 is *required* here, not a nice-to-have: the deploy target is a
 kind cluster on an Apple-silicon Mac — its nodes are arm64; an amd64-only
 image would crashloop on the cluster with the classic `exec format error`.
-(QEMU's emulation is also a known flake source — see War story 4.)
+(QEMU's emulation is also a known flake source.)
 
 The tags encode the deployment model: `sha-<7>` is immutable and is what CD
 deploys; `development` is a moving pointer for humans to `docker pull`. GHCR
@@ -2118,13 +2115,17 @@ type imageResponse struct {
 
 <!-- source: .docker/frontend/Dockerfile -->
 ```dockerfile
-COPY app/frontend/index.html /usr/share/nginx/html/
+# *.html: the guide shell (index.html) + the interactive demo page (demo.html).
+COPY app/frontend/*.html /usr/share/nginx/html/
 COPY app/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY GUIDE.md /usr/share/nginx/html/GUIDE.md
 ```
 
 nginx serves the markdown with an explicit content type (its stock
-mime.types would offer a download instead)…
+mime.types would offer a download instead)… Alongside the guide page, the
+image also ships `demo.html` — a small interactive page that exercises all
+three services with one click each (reachable from the guide's top bar,
+"Try the app →").
 
 <!-- source: app/frontend/nginx.conf -->
 ```nginx
@@ -2504,7 +2505,7 @@ dev (images preloaded, `IfNotPresent` means no pull) and *required* for CD
         imagePullPolicy: IfNotPresent
 ```
 
-The counter Deployment's probe budgets encode War story 4's lesson (slow
+The counter Deployment's probe budgets encode a hard-won lesson (slow
 npm cold starts under memory pressure must not be killed):
 
 <!-- source: .k8s/base/counter.yaml -->
@@ -2530,7 +2531,7 @@ npm cold starts under memory pressure must not be killed):
 
 Why the `github-actions.test` domain: `.test` is RFC-2606-reserved for
 exactly this (never resolvable publicly, no collision), and `.local` is
-reserved by macOS for mDNS — War story 3.
+reserved by macOS for mDNS.
 
 ## imagePullSecrets: how private images reach the cluster
 
@@ -2663,223 +2664,6 @@ the PAT (secret `GHCR_PULL_TOKEN`) expired — classic PATs do; refresh and
 push once (the next deploy rotates it into the cluster automatically). And
 if you edit this guide, `task guide-check` (or a PR) will verify every
 snippet you quote still exists.
-
----
-
-# Part III — War stories
-
-Every story below is real, from this repo's development history. Each is
-told as: symptom → investigation → root cause → fix → the general lesson.
-
-## War story 1: the first push that triggered nothing
-
-**Symptom.** The brand-new private repo, `ci.yaml` pushed to `development`
-with the initial commit — and the Actions tab stayed empty. No run, no
-error, nothing queued. The second push minutes later (an unrelated tweak)
-triggered CI normally, which made the first silence look like a flake.
-
-**Investigation.** Everything in the workflow was eventually ruled out: the
-YAML was valid, the branches filter matched, actions were pinned correctly.
-The difference between the two pushes was only that the first one created
-the branch. That pointed at GitHub's *diff computation*: path filters are
-evaluated against a diff base — and on the very first push of a repo (or of
-a new branch with no common ancestor), GitHub may have **no diff base to
-compare against**, so path-filtered workflows silently don't trigger.
-
-**Root cause.** A known GitHub quirk: path-filtered workflows
-(`paths:`/`paths-ignore:`) are unreliable on a repository's very first push;
-there is nothing to diff against. Not a bug in the workflow.
-
-**Fix.** None needed in the file — the *next* matching push behaves
-normally. The practical fix is procedural: when bootstrapping a repo, push a
-trivial follow-up commit (or trigger manually via `workflow_dispatch`) to
-confirm the pipeline, instead of debugging a workflow that is actually fine.
-
-**Lesson.** When a workflow doesn't trigger, the *filters* are suspects
-before the YAML is: check whether the event had a diff base at all. And
-prefer having a `workflow_dispatch` trigger on every workflow — it is the
-manual ignition that both diagnoses and works around trigger quirks.
-
-## War story 2: bad substitution on the Mac (bash 3.2)
-
-**Symptom.** Deploy jobs began failing on the self-hosted runner with:
-
-<!-- concept -->
-```console
-/Users/mak/.../deploy-env/action.yaml: line NN: ${OWNER,,}: bad substitution
-```
-
-The *same* logic had passed in CI jobs on GitHub-hosted `ubuntu-latest`.
-Everything about the workflow was identical; only the runner differed.
-
-**Investigation.** The failing expression was a bash-4 lowercase expansion
-(`${VAR,,}`). GitHub-hosted Ubuntu runners ship bash 5 — fine there. The
-self-hosted runner executes steps with macOS's `/bin/bash`, which is **bash
-3.2** (Apple froze it at the last GPLv2 version). `${VAR,,}` does not exist
-in 3.2 → "bad substitution". The bug was invisible until the first code path
-needing lowercase ran *on the Mac*.
-
-**Root cause.** Shell dialect drift: workflow scripts were written against
-modern bash but self-hosted runners run the host's shell, and macOS's is
-ancient. (The same class of bug: fancy `mapfile`, `readarray`, `|&`, or
-associative-array features all silently assume bash 4+.)
-
-**Fix.** Every workflow shell snippet became POSIX-safe — lowercase via
-`tr`, and substring cuts that work everywhere:
-
-<!-- source: .github/workflows/ci.yaml -->
-```yaml
-          # GHCR requires lowercase repository names. Lowercasing via tr, not
-          # the bash-4-only lowercase expansion: self-hosted macOS runners run
-          # /bin/bash 3.2 — keep every workflow shell POSIX-safe.
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          echo "name=ghcr.io/$owner/github-actions-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
-          echo "short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-```
-
-…plus explicit `shell: bash` on scripts that need *a* bash, and a repo rule
-recorded in every file that shells out: keep workflow shell POSIX-safe.
-
-**Lesson.** Self-hosted runners inherit the host's shell — write workflow
-scripts to the *oldest* shell that can run them, or pin your own toolchain.
-And: logic that "works in CI" has only been proven on *that* runner.
-
-## War story 3: the browser that hung on .local
-
-**Symptom.** `curl` against the deployed environments returned perfect 200s
-— but opening `http://development.github-actions.local:8080` in any browser
-on the Mac spun forever, no error, no timeout that helped. The ingress
-looked broken to every human who tried, while every machine check said
-healthy.
-
-**Investigation.** curl worked with `--resolve` (bypassing DNS), so the
-cluster and ingress were fine — the failure was in *name resolution inside
-the browser*. macOS reserves the `.local` suffix for **mDNS/Bonjour**
-(Zeroconf service discovery): the OS answers `.local` lookups itself via
-multicast, never falling through to `/etc/hosts` the way browsers expect.
-The hostname simply never resolved, and browsers waited on mDNS timeouts in
-a loop.
-
-**Root cause.** Using `.local` as the lab's fake TLD. RFC 6762 reserves it
-for mDNS; macOS hijacks it. (curl's `--resolve` sidestepped DNS entirely,
-which is exactly why curl and browsers disagreed.)
-
-**Fix.** Rename the whole environment surface to `.test` — the RFC-2606-
-reserved TLD *intended* for examples and local testing. Every host became
-`{development,staging,production}.github-actions.test`, and the idempotent
-`task hosts` task manages the `/etc/hosts` line for browser use:
-
-<!-- source: Taskfile.yml -->
-```yaml
-  hosts:
-    desc: ONE-TIME setup — idempotently add the three github-actions hosts to /etc/hosts (browser use only; curls above use --resolve)
-    cmds:
-      - |
-        line='127.0.0.1 development.github-actions.test staging.github-actions.test production.github-actions.test'
-        if grep -qF 'development.github-actions.test' /etc/hosts; then
-          echo 'github-actions hosts already present in /etc/hosts'
-        else
-```
-
-**Lesson.** Pick reserved-for-testing domains (`.test`, `.example`,
-`.invalid`, `.localhost`) from day one — real-looking or "free" TLDs
-(`.local`, `.dev`, `.app`) collide with other systems' claims (mDNS, HSTS
-preload). And when tools disagree (curl yes, browser no), find what differs
-*between the tools*, not inside the service.
-
-## War story 4: the counter crashloop that wasn't (a misdiagnosis arc)
-
-The lab's biggest debugging story — three theories, one truth.
-
-**Symptom.** After a CD deploy, the `counter` pods in the cluster
-crashlooped: liveness probes killed them, containers restarted, logs showed
-`connection refused` on :3000 during early startup. The same image built
-locally (`task build`, plain `docker build` on the arm64 host) ran
-perfectly. Only the *CI-built* image misbehaved.
-
-**Theory 1 — QEMU corruption.** The one real difference between the two
-images was the builder: CI builds arm64 under **QEMU emulation**
-(§31) — and `npm install` under emulated buildx is a genuinely known flake
-class that has silently corrupted arm64 layers before. The fix attempt:
-digest-pin the base image and switch to lockfile-exact installs:
-
-<!-- source: .docker/counter/Dockerfile -->
-```dockerfile
-# Digest-pinned manifest list (amd64+arm64); npm ci = lockfile-exact (QEMU npm install once corrupted arm64 layers silently)
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
-```
-
-Good hygiene — but the crashloop survived it. *Right hardening, wrong
-attribution.*
-
-**Theory 2 — nondeterministic builds.** Next suspicion: the build wasn't
-reproducible. Module-level tests flip-flopped (sometimes passing in CI,
-sometimes not); the tree was diffed and re-diffed. Result: the built
-filesystems were **identical** — same lock sha, same layers. Two byte-
-identical images, one crashlooping, one healthy, is not a build problem.
-
-**Theory 3 — the host.** With the image exonerated, the remaining variable
-was the *machine*. The 8GB Mac was deep into memory thrash (8.3/9.2GB of
-swap in use) — the kind cluster, Docker Desktop, the runner, and a browser
-were all fighting for RAM. On a thrashing host, the Node process's cold
-start stretched to ~40s (npm machinery + JIT under swap). The probe math
-then explained the kills exactly: liveness allowed 5s initial delay + 3
-failures × 10s = **~35s** — the container was being killed for being *slow*,
-seconds before it would have opened its socket. The "connection refused"
-was startup time, not a broken app. This also retroactively explained the
-module-test flakiness (same thrash) and restarts accumulating on earlier
-pods.
-
-**Root cause.** Host memory pressure slowed container cold starts past the
-liveness kill threshold. The image was fine; the probe budget was wrong for
-the machine it ran on.
-
-**Fix.** Probe budgets sized for reality — readiness gates traffic for up
-to ~70s (10s delay + 12×5s), liveness kills only after ~80s (20s delay +
-6×10s), with the reasoning pinned in the manifest for the next reader
-(the counter.yaml quote in Part II). Verified: zero restarts, and the full
-request chain `/api/facts → /api/count` green on the CI-built image.
-
-**Lessons.**
-1. When two identical artifacts behave differently, stop auditing the
-   artifact — audit the environment (the host was a variable, not a
-   constant).
-2. Liveness probes must tolerate your *slowest honest startup*, or they
-   execute healthy containers for being poor, not broken.
-3. A fix can be correct hygiene and still not fix the bug — label it
-   honestly (the digest-pinning stayed).
-4. On a small host, "the CI/CD lab is flaky" is often *memory pressure
-   wearing a costume*; reboot before blaming the pipeline.
-
-## War story 5: the deploys that fast-failed before doing anything
-
-**Symptom.** Two deploy runs, hours apart, failed in ~95 seconds — before
-the apply step ever ran. The failure was in early steps talking to the
-cluster: TLS handshake timeouts against the kind API server. Retrying the
-workflow (dispatch) healed both, and nothing in the repo had changed.
-
-**Investigation.** The deploy's own timeline ruled out the pipeline: the
-runner was up (it checked out the repo fine), the error was the API server
-not answering TLS in time. These two incidents clustered with the memory-
-pressure window of War story 4 — same thrashing host, same day. The kind
-API server is a process in a Docker VM competing for the same starved RAM;
-under extreme pressure it can miss handshake deadlines.
-
-**Root cause.** Transient kind API-server TLS timeouts under the same host
-memory pressure as War story 4 — an infrastructure hiccup, not a pipeline
-defect. (The ~95s duration was the retry/timeout budget of the steps
-involved, not a code path.)
-
-**Fix.** No code change: retries heal it. The structural mitigations are the
-ones already adopted — reboot before lab sessions, keep the lab's memory
-appetite small (production replicas can drop 2→1 on this host), and treat
-"failed before apply" as a *different class* of failure from "failed at the
-rollout gate".
-
-**Lesson.** Classify failures by *where* they die: before-checkout (runner),
-before-apply (infrastructure — retry), at the rollout gate (your pipeline's
-own correctness check — investigate). A deploy pipeline earns trust not by
-never failing, but by failing in interpretable places.
 
 ---
 

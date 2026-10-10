@@ -39,11 +39,12 @@
   .topbar .brand { font-weight: 700; }
   .topbar .brand code { background: var(--code-bg); }
   .topbar .spacer { flex: 1; }
-  .topbar button {
+  .topbar button, .topbar a.app-link {
     font: inherit; font-size: .85rem; padding: 4px 12px; cursor: pointer;
     color: var(--fg); background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 6px; text-decoration: none; display: inline-block;
   }
+  .topbar a.app-link:hover, .topbar button:hover { background: var(--hover); }
   .layout { display: flex; max-width: 1180px; margin: 0 auto; }
   nav.toc {
     position: sticky; top: 45px; align-self: flex-start;
@@ -110,6 +111,7 @@
 <header class="topbar">
   <span class="brand"><code>github-actions</code> guide</span>
   <span class="spacer"></span>
+  <a class="app-link" href="/demo.html" title="Interactive page exercising the three live services">Try the app →</a>
   <button id="theme-toggle" type="button" title="Toggle light/dark theme">◐ theme</button>
 </header>
 <div class="layout">
